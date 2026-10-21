@@ -4,7 +4,7 @@ Team project for the IFJ and IAL courses at FIT VUT, academic year 2026/2027.
 
 ## Meetings
 
-- [21 October 2026 — Initial team meeting](docs/meetings/2026-10-20.md)
+- [20 October 2026 — Initial team meeting](docs/meetings/2026-10-20.md)
 
 ## Project Structure
 

@@ -96,9 +96,31 @@ typedef struct{
 } Token;
 
 // funkcie ktore bude Parser Volat
-int lexer_init(FILE *input);  // pripravi lexer na citanie
-int lexer_next(Token *out);   // da dalsi token
-void lexer_unget(Token *tok); // vrati jeden token spat
-void lexer_free(void);        // uvolni vsetku pamat lexera
+
+/**
+ * Pripravi lexer na citanie
+ * 
+ * @param input  Subor FILE z ktoreho cita (stdin)
+ * @return       0 = OK, 99 = chyba alokacie (malloc)
+ */
+int lexer_init(FILE *input);
+
+/**
+ * Nacita dalsi token zo vstupu.
+ * 
+ * @param out  sem sa zapise nacitany token
+ * @return     0 = OK, 1 = lexikalna chyba, 99 = chyba alokacie (malloc)
+ */
+int lexer_next(Token *out);
+
+/**
+ * Vrati jeden token spat.
+ * 
+ * @param tok  token, ktory sa vracia
+ * @note       naraz sa da vratit len jeden token.
+ */
+void lexer_unget(Token *tok);
+
+void lexer_free(void); // uvolni vsetku pamat, ktoru lexer pouziva (vola sa na konci prekladu)
 
 #endif

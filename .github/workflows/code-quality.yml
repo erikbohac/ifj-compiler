@@ -2,11 +2,11 @@ name: Code Quality
 
 on:
   push:
-    pull_request:
+  pull_request:
 
-      jobs:
-        checks:
-          runs-on: ubuntu-latest
+jobs:
+  checks:
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
@@ -26,4 +26,3 @@ on:
         run: |
           find src -type f -name '*.c' \
           -exec clang-tidy --warnings-as-errors='*' {} -- -std=c23 -Isrc \;
-

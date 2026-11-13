@@ -136,6 +136,29 @@ typedef enum {
   NUM_FRAC_US, // posledny znak v desatinej casti bol '_'
 } NumState;
 
+static int finish_int(DynStr *num, int c, Token *out) {
+  if (isalpha(c)) {
+    dynstr_free(num);
+    return 1;
+  }
+  ungetc(c, inp);
+  out->type = TOK_LIT_INT;
+  out->value.int_val = strtoll(num->data, NULL, 10);
+  dynstr_free(num);
+  return 0;
+}
+
+static int finish_double(DynStr *num, int c, Token *out) {
+  if (isalpha(c)) {
+    dynstr_free(num);
+    return 1;
+  }
+  ungetc(c, inp);
+  out->type = TOK_LIT_DOUBLE;
+  out->value.double_val = strtod(num->data, NULL);
+  dynstr_free(num);
+  return 0;
+}
 // Precita cislo, ktore zacina cislicou c (konecny automat).
 static int read_number(int c, Token *out) {
   DynStr num; // cislice bez podciarknikov, napr. "1_000" -> "1000"
@@ -170,12 +193,7 @@ static int read_number(int c, Token *out) {
         state = NUM_DOT;
         break;
       }
-      ungetc(c, inp);
-      // prevod z string -> long long
-      out->value.int_val = strtoll(num.data, NULL, 10);
-      out->type = TOK_LIT_INT;
-      dynstr_free(&num);
-      return 0;
+      return finish_int(&num, c, out);
 
     case NUM_INT:
       if (isdigit(c)) {
@@ -189,11 +207,7 @@ static int read_number(int c, Token *out) {
         state = NUM_DOT;
         break;
       } else {
-        ungetc(c, inp);
-        out->value.int_val = strtoll(num.data, NULL, 10);
-        out->type = TOK_LIT_INT;
-        dynstr_free(&num);
-        return 0;
+        return finish_int(&num, c, out);
       }
 
     case NUM_INT_US:
@@ -225,11 +239,7 @@ static int read_number(int c, Token *out) {
         state = NUM_FRAC_US;
         break;
       } else {
-        ungetc(c, inp);
-        out->type = TOK_LIT_DOUBLE;
-        out->value.double_val = strtod(num.data, NULL);
-        dynstr_free(&num);
-        return 0;
+        return finish_double(&num, c, out);
       }
 
     case NUM_FRAC_US:

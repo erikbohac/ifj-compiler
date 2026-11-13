@@ -83,66 +83,114 @@ int lexer_init(FILE *input) {
  *    c) operator alebo oddelovac
  * 3. ak znak nepozna v
  */
-int lexer_next(Token *out) {
-  int c = fgetc(inp);
-  // --- 1. preskocenie medzier ---
-  while (c == ' ') {
+
+/*
+ * Precita cele slovo, ktore zacina znakom c,
+ * a urci, ci je to "_", klucove slovo alebo identifikator
+ */
+static int read_word(int c, Token *out) {
+  DynStr word;
+  if (!dynstr_init(&word)) {
+    return 99; // chyba inicializacie
+  }
+
+  // Pridavame znaky, kym patria do slova (pismena, cislice, podciarknik)
+  while (isalnum(c) || c == '_') {
+    if (!dynstr_append(&word, c)) {
+      dynstr_free(&word);
+      return 99; // chyba alokacie pameti
+    }
     c = fgetc(inp);
   }
-  out->line = line;
-  // --- 2a. koniec suboru ---
-  if (c == EOF) {
-    out->type = TOK_EOF;
-    return 0; // OK
-  }
-  // --- 2a. novy riadok ---
-  if (c == '\n') {
-    out->type = TOK_NEWLINE;
-    line++;
-    return 0; // OK
-  }
-  // Slovo moze zacinat pismenom alebo podciarknikom
-  // Ak tak zacina, je to identifikator alebo klucove slovo
-  if (isalpha(c) || c == '_') {
-    // Dlzku slova dopredu nepozname, preto ho skaldame do dynamickeho retazca
-    DynStr word;
-    if (!dynstr_init(&word)) {
-      return 99; // chyba inicializacie
-    }
 
-    // Pridavame znaky, kym patria do slova (pismena, cislice, podciarknik)
-    while (isalnum(c) || c == '_') {
-      if (!dynstr_append(&word, c)) {
-        dynstr_free(&word);
-        return 99; // chyba alokacie pameti
-      }
-      c = fgetc(inp);
-    }
-
-    // Cyklus skoncil na znaku ktory do slova nepatri napr medzera
-    // Takze ho vratime spat do vstupu
-    ungetc(c, inp);
-    // Samotne "_" nieje slovo, je to specialny token
-    if (strcmp(word.data, "_") == 0) {
-      out->type = TOK_UNDERSCORE;
-      dynstr_free(&word);
-      return 0;
-    }
-
-    // ak je slovo v tabulke klucovych slov, vratime jeho typ
-    // text uz netreba, typ tokenu staci, preto ho uvolnime
-    TokenType type = find_keyword(word.data);
-    if (type != TOK_ID) {
-      out->type = type;
-      dynstr_free(&word);
-      return 0;
-    }
-    // Inak je to identifikator. Jehoo meno parser potrebuje
-    // preto text odovzdame v tokene a neuvolnujeme ho
-    out->type = TOK_ID;
-    out->value.str_val = word.data;
+  // Cyklus skoncil na znaku ktory do slova nepatri napr medzera
+  // Takze ho vratime spat do vstupu
+  ungetc(c, inp);
+  // Samotne "_" nieje slovo, je to specialny token
+  if (strcmp(word.data, "_") == 0) {
+    out->type = TOK_UNDERSCORE;
+    dynstr_free(&word);
     return 0;
   }
+
+  // ak je slovo v tabulke klucovych slov, vratime jeho typ
+  // text uz netreba, typ tokenu staci, preto ho uvolnime
+  TokenType type = find_keyword(word.data);
+  if (type != TOK_ID) {
+    out->type = type;
+    dynstr_free(&word);
+    return 0;
+  }
+  // pre ID treba aj slovo ktore potom pojde do parseru
+  out->type = TOK_ID;
+  out->value.str_val = word.data;
+  return 0;
+}
+
+typedef enum {
+  NUM_ZERO,   // 0 na zaciatku
+  NUM_INT,    // citam cislice celeho cisla
+  NUM_INT_US, // posledny znak bol '_'
+} NumState;
+
+// Precita cislo, ktore zacina cislicou c (konecny automat).
+static int read_number(int c, Token *out) {
+  DynStr num; // cislice bez podciarknikov, napr. "1_000" -> "1000"
+  if (!dynstr_init(&num)) {
+    return 99;
+  }
+
+  NumState state = (c == '0') ? NUM_ZERO : NUM_INT;
+  // pridaj prvu cislicu c do num
+  if (!dynstr_append(&num, c)) {
+    dynstr_free(&num);
+    return 99;
+  }
+
+  while (true) {
+    c = fgetc(inp);
+    switch (state) {
+    case NUM_ZERO:
+      if (isdigit(c) || c == '_') {
+        dynstr_free(&num);
+        return 1;
+      }
+      ungetc(c, inp);
+      // prevod z string -> long long
+      out->value.int_val = strtoll(num.data, NULL, 10);
+      out->type = TOK_LIT_INT;
+      dynstr_free(&num);
+      return 0;
+    case NUM_INT:
+      if (isdigit(c)) {
+        dynstr_append(&num, c);
+        break;
+      } else if (c == '_') {
+        state = NUM_INT_US;
+        break;
+      } else {
+        ungetc(c, inp);
+        out->value.int_val = strtoll(num.data, NULL, 10);
+        out->type = TOK_LIT_INT;
+        dynstr_free(&num);
+        return 0;
+      }
+
+    case NUM_INT_US:
+      if (c == '_') {
+        break;
+      } else if (isdigit(c)) {
+        dynstr_append(&num, c);
+        state = NUM_INT;
+        break;
+      }
+      dynstr_free(&num);
+      return 1;
+    }
+  }
+}
+static int read_operator(int c, Token *out) {
+  // operatory
   switch (c) {
   // jednoznakove
   case '-':
@@ -233,7 +281,33 @@ int lexer_next(Token *out) {
     }
     return 0;
   }
-  return 1; // lexikalna chyba
+  return 1;
+}
+int lexer_next(Token *out) {
+  int c = fgetc(inp);
+  // preskocime medzery
+  while (c == ' ') {
+    c = fgetc(inp);
+  }
+  out->line = line;
+  if (c == EOF) {
+    out->type = TOK_EOF;
+    return 0; // OK
+  }
+  if (c == '\n') {
+    out->type = TOK_NEWLINE;
+    line++;
+    return 0; // OK
+  }
+  // Slovo moze zacinat pismenom alebo podciarknikom
+  // Ak tak zacina, je to identifikator alebo klucove slovo
+  if (isalpha(c) || c == '_') {
+    return read_word(c, out);
+  }
+  if (isdigit(c)) {
+    return read_number(c, out);
+  }
+  return read_operator(c, out);
 }
 void lexer_unget(Token *tok) { return; }
 

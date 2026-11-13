@@ -128,12 +128,16 @@ static int read_word(int c, Token *out) {
 }
 
 typedef enum {
-  NUM_ZERO,    // 0 na zaciatku
-  NUM_INT,     // citam cislice celeho cisla
-  NUM_INT_US,  // posledny znak bol '_'
-  NUM_DOT,     // precitana '.', musi nasledovat cislica
-  NUM_FRAC,    // citam desatinnu cast
-  NUM_FRAC_US, // posledny znak v desatinej casti bol '_'
+  NUM_ZERO,      // 0 na zaciatku
+  NUM_INT,       // citam cislice celeho cisla
+  NUM_INT_US,    // posledny znak bol '_'
+  NUM_DOT,       // precitana '.', musi nasledovat cislica
+  NUM_FRAC,      // citam desatinnu cast
+  NUM_FRAC_US,   // posledny znak v desatinej casti bol '_'
+  NUM_EXP_START, // precitane e/E, musi ist znamienko alebo cislica
+  NUM_EXP_SIGN,  // precitane +/-, musi ist cislica
+  NUM_EXP,       // cislice exponentu
+  NUM_EXP_US,    //'_' v exponente
 } NumState;
 
 static int finish_int(DynStr *num, int c, Token *out) {
@@ -192,8 +196,13 @@ static int read_number(int c, Token *out) {
         dynstr_append(&num, c);
         state = NUM_DOT;
         break;
+      } else if (c == 'e' || c == 'E') {
+        dynstr_append(&num, c);
+        state = NUM_EXP_START;
+        break;
+      } else {
+        return finish_int(&num, c, out);
       }
-      return finish_int(&num, c, out);
 
     case NUM_INT:
       if (isdigit(c)) {
@@ -205,6 +214,10 @@ static int read_number(int c, Token *out) {
       } else if (c == '.') {
         dynstr_append(&num, c);
         state = NUM_DOT;
+        break;
+      } else if (c == 'e' || c == 'E') {
+        dynstr_append(&num, c);
+        state = NUM_EXP_START;
         break;
       } else {
         return finish_int(&num, c, out);
@@ -238,6 +251,10 @@ static int read_number(int c, Token *out) {
       } else if (c == '_') {
         state = NUM_FRAC_US;
         break;
+      } else if (c == 'e' || c == 'E') {
+        dynstr_append(&num, c);
+        state = NUM_EXP_START;
+        break;
       } else {
         return finish_double(&num, c, out);
       }
@@ -251,6 +268,49 @@ static int read_number(int c, Token *out) {
         break;
       } else {
         dynstr_free(&num);
+        return 1;
+      }
+
+    case NUM_EXP_START:
+      if (c == '+' || c == '-') {
+        dynstr_append(&num, c);
+        state = NUM_EXP_SIGN;
+        break;
+      } else if (isdigit(c)) {
+        dynstr_append(&num, c);
+        state = NUM_EXP;
+        break;
+      } else {
+        dynstr_free(&num);
+        return 1; // 1e bez cisla je chyba
+      }
+
+    case NUM_EXP_SIGN:
+      if (isdigit(c)) {
+        dynstr_append(&num, c);
+        state = NUM_EXP;
+        break;
+      } else {
+        return 1;
+      }
+    case NUM_EXP:
+      if (isdigit(c)) {
+        dynstr_append(&num, c);
+        break;
+      } else if (c == '_') {
+        state = NUM_EXP_US;
+        break;
+      } else {
+        return finish_double(&num, c, out);
+      }
+
+    case NUM_EXP_US:
+      if (c == '_') {
+        break;
+      } else if (isdigit(c)) {
+        dynstr_append(&num, c);
+        state = NUM_EXP;
+      } else {
         return 1;
       }
     }

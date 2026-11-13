@@ -200,6 +200,8 @@ static int read_number(int c, Token *out) {
         dynstr_append(&num, c);
         state = NUM_EXP_START;
         break;
+      } else if (c == 'd' || c == 'D') {
+        return finish_double(&num, fgetc(inp), out);
       } else {
         return finish_int(&num, c, out);
       }
@@ -219,6 +221,8 @@ static int read_number(int c, Token *out) {
         dynstr_append(&num, c);
         state = NUM_EXP_START;
         break;
+      } else if (c == 'd' || c == 'D') {
+        return finish_double(&num, fgetc(inp), out);
       } else {
         return finish_int(&num, c, out);
       }
@@ -255,6 +259,8 @@ static int read_number(int c, Token *out) {
         dynstr_append(&num, c);
         state = NUM_EXP_START;
         break;
+      } else if (c == 'd' || c == 'D') {
+        return finish_double(&num, fgetc(inp), out);
       } else {
         return finish_double(&num, c, out);
       }
@@ -300,6 +306,8 @@ static int read_number(int c, Token *out) {
       } else if (c == '_') {
         state = NUM_EXP_US;
         break;
+      } else if (c == 'd' || c == 'D') {
+        return finish_double(&num, fgetc(inp), out);
       } else {
         return finish_double(&num, c, out);
       }

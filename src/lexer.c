@@ -128,9 +128,12 @@ static int read_word(int c, Token *out) {
 }
 
 typedef enum {
-  NUM_ZERO,   // 0 na zaciatku
-  NUM_INT,    // citam cislice celeho cisla
-  NUM_INT_US, // posledny znak bol '_'
+  NUM_ZERO,    // 0 na zaciatku
+  NUM_INT,     // citam cislice celeho cisla
+  NUM_INT_US,  // posledny znak bol '_'
+  NUM_DOT,     // precitana '.', musi nasledovat cislica
+  NUM_FRAC,    // citam desatinnu cast
+  NUM_FRAC_US, // posledny znak v desatinej casti bol '_'
 } NumState;
 
 // Precita cislo, ktore zacina cislicou c (konecny automat).
@@ -140,7 +143,14 @@ static int read_number(int c, Token *out) {
     return 99;
   }
 
-  NumState state = (c == '0') ? NUM_ZERO : NUM_INT;
+  NumState state;
+  if (c == '0') {
+    state = NUM_ZERO;
+  } else if (c == '.') {
+    state = NUM_DOT;
+  } else {
+    state = NUM_INT;
+  }
   // pridaj prvu cislicu c do num
   if (!dynstr_append(&num, c)) {
     dynstr_free(&num);
@@ -149,11 +159,16 @@ static int read_number(int c, Token *out) {
 
   while (true) {
     c = fgetc(inp);
+
     switch (state) {
     case NUM_ZERO:
       if (isdigit(c) || c == '_') {
         dynstr_free(&num);
         return 1;
+      } else if (c == '.') {
+        dynstr_append(&num, c);
+        state = NUM_DOT;
+        break;
       }
       ungetc(c, inp);
       // prevod z string -> long long
@@ -161,12 +176,17 @@ static int read_number(int c, Token *out) {
       out->type = TOK_LIT_INT;
       dynstr_free(&num);
       return 0;
+
     case NUM_INT:
       if (isdigit(c)) {
         dynstr_append(&num, c);
         break;
       } else if (c == '_') {
         state = NUM_INT_US;
+        break;
+      } else if (c == '.') {
+        dynstr_append(&num, c);
+        state = NUM_DOT;
         break;
       } else {
         ungetc(c, inp);
@@ -186,6 +206,43 @@ static int read_number(int c, Token *out) {
       }
       dynstr_free(&num);
       return 1;
+
+    case NUM_DOT:
+      if (isdigit(c)) {
+        dynstr_append(&num, c);
+        state = NUM_FRAC;
+        break;
+      } else {
+        dynstr_free(&num);
+        return 1;
+      }
+
+    case NUM_FRAC:
+      if (isdigit(c)) {
+        dynstr_append(&num, c);
+        break;
+      } else if (c == '_') {
+        state = NUM_FRAC_US;
+        break;
+      } else {
+        ungetc(c, inp);
+        out->type = TOK_LIT_DOUBLE;
+        out->value.double_val = strtod(num.data, NULL);
+        dynstr_free(&num);
+        return 0;
+      }
+
+    case NUM_FRAC_US:
+      if (c == '_') {
+        break;
+      } else if (isdigit(c)) {
+        dynstr_append(&num, c);
+        state = NUM_FRAC;
+        break;
+      } else {
+        dynstr_free(&num);
+        return 1;
+      }
     }
   }
 }
@@ -306,6 +363,13 @@ int lexer_next(Token *out) {
   }
   if (isdigit(c)) {
     return read_number(c, out);
+  }
+  if (c == '.') {
+    int next = fgetc(inp);
+    ungetc(next, inp);
+    if (isdigit(next)) {
+      return read_number(c, out);
+    }
   }
   return read_operator(c, out);
 }

@@ -419,7 +419,67 @@ static int read_operator(int c, Token *out) {
   return 1;
 }
 
+static int read_multiline_string(Token *out) {
+  DynStr str;
+  if (!dynstr_init(&str)) {
+    return 99;
+  }
+
+  int quotes = 0; // kolko " sme vydeli za sebou
+
+  while (true) {
+    int c = fgetc(inp);
+
+    if (c == '"') {
+      quotes++;
+      if (quotes == 3) {
+        out->type = TOK_LIT_STRING;
+        out->value.str_val = str.data;
+        return 0;
+      }
+      continue;
+    }
+    // prisiel iny znak
+    for (int i = 0; i < quotes; i++) {
+      if (!dynstr_append(&str, '"')) {
+        dynstr_free(&str);
+        return 99;
+      }
+    }
+    quotes = 0;
+
+    if (c == EOF) {
+      dynstr_free(&str);
+      return 1;
+    }
+    if (c == '\n') {
+      line++;
+    }
+    if (!dynstr_append(&str, c)) {
+      dynstr_free(&str);
+      return 99;
+    }
+  }
+}
 static int read_string(Token *out) {
+  int c2 = fgetc(inp);
+  if (c2 == '"') {
+    int c3 = fgetc(inp);
+    if (c3 == '"') {
+      return read_multiline_string(out); // """
+    }
+    ungetc(c3, inp);
+    DynStr empty;
+    if (!dynstr_init(&empty)) {
+      return 99;
+    }
+    out->type = TOK_LIT_STRING;
+    out->value.str_val = empty.data;
+    return 0;
+  } else {
+    ungetc(c2, inp); // obycajny retazec, pokracuj normalne
+  }
+
   DynStr str;
   if (!dynstr_init(&str)) {
     return 99;

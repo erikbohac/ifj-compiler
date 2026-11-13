@@ -141,7 +141,7 @@ typedef enum {
 } NumState;
 
 static int finish_int(DynStr *num, int c, Token *out) {
-  if (isalpha(c)) {
+  if (isalnum(c)) {
     dynstr_free(num);
     return 1;
   }
@@ -153,7 +153,7 @@ static int finish_int(DynStr *num, int c, Token *out) {
 }
 
 static int finish_double(DynStr *num, int c, Token *out) {
-  if (isalpha(c)) {
+  if (isalnum(c)) {
     dynstr_free(num);
     return 1;
   }

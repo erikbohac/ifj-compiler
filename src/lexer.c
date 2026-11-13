@@ -418,6 +418,58 @@ static int read_operator(int c, Token *out) {
   }
   return 1;
 }
+
+static int read_string(Token *out) {
+  DynStr str;
+  if (!dynstr_init(&str)) {
+    return 99;
+  }
+
+  while (true) {
+    int c = fgetc(inp);
+
+    if (c == '"') { // koniec retazca
+      out->type = TOK_LIT_STRING;
+      out->value.str_val = str.data;
+      return 0;
+    }
+
+    if (c == '\n' || c == EOF) {
+      dynstr_free(&str);
+      return 1; // neukonceny retazec -> chyba
+    }
+
+    if (c == '\\') {
+      int next = fgetc(inp);
+      switch (next) {
+      case 'n':
+        dynstr_append(&str, '\n');
+        break;
+      case 't':
+        dynstr_append(&str, '\t');
+        break;
+      case 'r':
+        dynstr_append(&str, '\r');
+        break;
+      case '"':
+        dynstr_append(&str, '"');
+        break;
+      case '\\':
+        dynstr_append(&str, '\\');
+        break;
+      default:
+        dynstr_free(&str);
+        return 1; // neznama escape sekvencia
+      }
+      continue;
+    }
+
+    if (!dynstr_append(&str, c)) {
+      dynstr_free(&str);
+      return 99;
+    }
+  }
+}
 int lexer_next(Token *out) {
   int c = fgetc(inp);
   // preskocime medzery
@@ -448,6 +500,9 @@ int lexer_next(Token *out) {
     if (isdigit(next)) {
       return read_number(c, out);
     }
+  }
+  if (c == '"') {
+    return read_string(out);
   }
   return read_operator(c, out);
 }

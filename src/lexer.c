@@ -9,6 +9,7 @@
 #include "lexer.h"
 #include "dynstr.h"
 #include <ctype.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -18,6 +19,9 @@
 
 static FILE *inp; // vstup, z ktoreho citame znaky
 static int line;  // cislo aktualneho riadku (pre chybove hlasky)
+
+static Token ungot_tok; // token vrateny cez lexer_unget
+static bool has_ungot;  // true = ungot_tok je platny a lexer_next ho vrati
 
 /* ========================================================================
  * Tabulka klucovych slov
@@ -358,6 +362,7 @@ static int read_number(int c, Token *out) {
         state = NUM_EXP;
         break;
       } else {
+        dynstr_free(&num);
         return 1;
       }
 
@@ -381,6 +386,7 @@ static int read_number(int c, Token *out) {
         dynstr_append(&num, c);
         state = NUM_EXP;
       } else {
+        dynstr_free(&num);
         return 1;
       }
     }
@@ -648,6 +654,7 @@ static int read_operator(int c, Token *out) {
 int lexer_init(FILE *input) {
   inp = input;
   line = 1;
+  has_ungot = false;
   return 0;
 }
 
@@ -657,6 +664,13 @@ int lexer_init(FILE *input) {
  * a read_operator. Ak znak nepozna ani read_operator, je to lexikalna chyba.
  */
 int lexer_next(Token *out) {
+  // Ak parser vratil token cez lexer_unget, dame mu najprv ten
+  if (has_ungot) {
+    *out = ungot_tok;
+    has_ungot = false;
+    return 0;
+  }
+
   int c = fgetc(inp);
 
   // Preskocime medzery
@@ -707,6 +721,13 @@ int lexer_next(Token *out) {
   return read_operator(c, out);
 }
 
-void lexer_unget(Token *tok) { return; }
+/*
+ * Token si iba odlozime. Dalsie volanie lexer_next ho vrati namiesto
+ * citania zo vstupu. Naraz sa da vratit len jeden token.
+ */
+void lexer_unget(Token *tok) {
+  ungot_tok = *tok;
+  has_ungot = true;
+}
 
 void lexer_free(void) { return; }

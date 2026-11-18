@@ -4,3 +4,6 @@
  * 
  * @author xsmekav00, Veronika Smékalová
 */
+
+#include <stdbool.h>
+#include <stdlib.h>

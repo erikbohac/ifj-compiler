@@ -21,7 +21,7 @@ typedef struct AVLNode {
 
 void avl_inicialization(AVLNode **node);
 void avl_insertion(AVLNode **node, const char *key, void *data);
-AVLNode *avl_search(AVLNode *node, const char *key);
 void avl_disposal(AVLNode **node);
+AVLNode *avl_search(AVLNode *node, const char *key);
 
 #endif

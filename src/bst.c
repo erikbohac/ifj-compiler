@@ -115,15 +115,20 @@ void avl_insertion(AVLNode **node, const char *key, void *data){
     *node = avl_insertion_recrusive(*node, key, data);
 }
 
-void avl_disposal(AVLNode **node){
-    
+void avl_disposal(AVLNode *node){
+    if (node != NULL){
+        avl_disposal(node->left_son);
+        avl_disposal(node->right_son);
+        free(node->key);
+        free(node);
+    }
 }
 
 AVLNode *avl_search(AVLNode *node, const char *key){
     if (node == NULL)
         return NULL;
 
-    if (ccomprare_keys(key, node->key) == 0)
+    if (comprare_keys(key, node->key) == 0)
         return node;
 
     else if (comprare_keys(key, node->key) > 0)

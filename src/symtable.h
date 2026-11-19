@@ -15,11 +15,12 @@
 
 typedef enum
 {
+	TYPE_NONE,
 	TYPE_INT,
-	TYPE_DOUBLE,
 	TYPE_STRING,
-	TYPE_UNIT,
-	TYPE_BOOLEAN
+	TYPE_DOUBLE,
+	TYPE_BOOL,
+	TYPE_UNIT
 } DataType;
 
 typedef enum
@@ -41,7 +42,7 @@ typedef struct
 } SymbolData;
 
 void table_inicialization(AVLNode** node);
-void table_insertion(AVLNode** node, const char* key, DataType type, SymbolTag tag, int line);
+bool table_insertion(AVLNode** node, const char* key, DataType type, SymbolTag tag, int line);
 AVLNode* table_search(AVLNode* node, const char* key);
 void table_free(AVLNode** node);
 

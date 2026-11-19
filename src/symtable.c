@@ -17,7 +17,7 @@ void table_inicialization(AVLNode** node)
 	avl_inicialization(node);
 }
 
-void table_insertion(AVLNode** node, const char* key, DataType type, SymbolTag tag, int line)
+bool table_insertion(AVLNode** node, const char* key, DataType type, SymbolTag tag, int line)
 {
 	SymbolData* data = malloc(sizeof(SymbolData));
 
@@ -47,6 +47,8 @@ void table_insertion(AVLNode** node, const char* key, DataType type, SymbolTag t
 
 	else
 		avl_insertion(node, key, data);
+
+	return true;
 }
 
 void table_free_recrusive(AVLNode* node)

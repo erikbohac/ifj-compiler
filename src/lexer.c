@@ -23,6 +23,14 @@ static int line;  // cislo aktualneho riadku (pre chybove hlasky)
 static Token ungot_tok; // token vrateny cez lexer_unget
 static bool has_ungot;  // true = ungot_tok je platny a lexer_next ho vrati
 
+#define MAX_INDENT 256
+
+static int indent_stack[MAX_INDENT]; // urovne odsadenia, na spodku je vzdy 0
+static int indent_top;               // index vrcholu zasobnika
+static int pending_dedents;          // kolko DEDENT este treba poslat
+static int paren_depth;              // hlbka zatvoriek ( [ - vnutri sa \n ignoruje
+static bool at_line_start;           // sme na zaciatku noveho riadku?
+
 /* ========================================================================
  * Tabulka klucovych slov
  * ======================================================================== */
@@ -93,6 +101,88 @@ static bool match(int expected) {
 }
 
 /* ========================================================================
+ * Komentare
+ * ======================================================================== */
+
+/**
+ * Preskoci riadkovy komentar (uvodne "//" uz je precitane) az po koniec
+ * riadku. Samotny koniec riadku necha na vstupe, aby z neho vznikol NEWLINE.
+ */
+static void skip_line_comment(void) {
+  int c = fgetc(inp);
+  while (c != '\n' && c != EOF) {
+    c = fgetc(inp);
+  }
+  ungetc(c, inp);
+}
+
+/**
+ * Preskoci blokovy komentar (uvodne "/" a "*" uz su precitane), vratane
+ * vnorenych komentarov. Hlbku vnorenia pocita pocitadlo depth.
+ *
+ * @param had_newline  sem zapise, ci komentar obsahoval koniec riadku
+ * @return             0 = OK, 1 = neukonceny komentar (lexikalna chyba)
+ */
+static int skip_block_comment(bool *had_newline) {
+  int depth = 1; // uz sme vnutri jedneho komentara
+  *had_newline = false;
+
+  while (true) {
+    int c = fgetc(inp);
+
+    if (c == EOF) {
+      return 1; // komentar nebol ukonceny
+    }
+    if (c == '\n') {
+      line++;
+      *had_newline = true;
+    } else if (c == '/' && match('*')) {
+      depth++; // vnoreny komentar
+    } else if (c == '*' && match('/')) {
+      depth--;
+      if (depth == 0) {
+        return 0;
+      }
+    }
+  }
+}
+
+/**
+ * Po viacriadkovom blokovom komentari uz na riadku nesmie byt ziadny token,
+ * iba medzery a dalsie komentare. Koniec riadku necha na vstupe.
+ *
+ * @return  0 = OK, 1 = za komentarom je token (lexikalna chyba)
+ */
+static int check_rest_of_line(void) {
+  int c = fgetc(inp);
+  while (c == ' ' || c == '\t') {
+    c = fgetc(inp);
+  }
+
+  if (c == '\n' || c == EOF) {
+    ungetc(c, inp);
+    return 0;
+  }
+
+  if (c == '/') {
+    if (match('/')) {
+      skip_line_comment();
+      return 0;
+    }
+    if (match('*')) {
+      bool had_newline;
+      int err = skip_block_comment(&had_newline);
+      if (err != 0) {
+        return err;
+      }
+      return check_rest_of_line();
+    }
+  }
+
+  return 1; // za viacriadkovym komentarom nasleduje token
+}
+
+/* ========================================================================
  * Slova: identifikatory a klucove slova
  * ======================================================================== */
 
@@ -143,6 +233,32 @@ static int read_word(int c, Token *out) {
   // preto text odovzdame v tokene a NEuvolnujeme ho.
   out->type = TOK_ID;
   out->value.str_val = word.data;
+  return 0;
+}
+
+/**
+ * Precita anotaciu @main (znak '@' uz je precitany). Hned za '@' musi byt
+ * presne slovo "main", bez medzery a bez dalsich znakov identifikatora.
+ *
+ * @param out  sem sa zapise token TOK_AT_MAIN
+ * @return     0 = OK, 1 = lexikalna chyba (napr. "@ main" alebo "@mainx")
+ */
+static int read_at_main(Token *out) {
+  const char *expected = "main";
+  for (int i = 0; expected[i] != '\0'; i++) {
+    if (fgetc(inp) != expected[i]) {
+      return 1;
+    }
+  }
+
+  // za "main" uz nesmie pokracovat identifikator (napr. "@mainx")
+  int c = fgetc(inp);
+  if (isalnum(c) || c == '_') {
+    return 1;
+  }
+  ungetc(c, inp);
+
+  out->type = TOK_AT_MAIN;
   return 0;
 }
 
@@ -244,6 +360,7 @@ static int read_number(int c, Token *out) {
   // Citame znak po znaku a podla aktualneho stavu rozhodneme o prechode
   while (true) {
     c = fgetc(inp);
+    bool keep = false; // ma sa znak c pridat do cisla?
 
     switch (state) {
     case NUM_ZERO:
@@ -252,11 +369,11 @@ static int read_number(int c, Token *out) {
         dynstr_free(&num);
         return 1;
       } else if (c == '.') {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_DOT;
         break;
       } else if (c == 'e' || c == 'E') {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP_START;
         break;
       } else if (c == 'd' || c == 'D') {
@@ -268,18 +385,18 @@ static int read_number(int c, Token *out) {
 
     case NUM_INT:
       if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         break;
       } else if (c == '_') {
         // podciarknik do cisla nepridavame, len si zapamatame, ze bol
         state = NUM_INT_US;
         break;
       } else if (c == '.') {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_DOT;
         break;
       } else if (c == 'e' || c == 'E') {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP_START;
         break;
       } else if (c == 'd' || c == 'D') {
@@ -293,7 +410,7 @@ static int read_number(int c, Token *out) {
       if (c == '_') {
         break;
       } else if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_INT;
         break;
       }
@@ -303,7 +420,7 @@ static int read_number(int c, Token *out) {
     case NUM_DOT:
       // Za bodkou musi ist cislica (napr. "1." je chyba)
       if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_FRAC;
         break;
       } else {
@@ -313,13 +430,13 @@ static int read_number(int c, Token *out) {
 
     case NUM_FRAC:
       if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         break;
       } else if (c == '_') {
         state = NUM_FRAC_US;
         break;
       } else if (c == 'e' || c == 'E') {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP_START;
         break;
       } else if (c == 'd' || c == 'D') {
@@ -332,7 +449,7 @@ static int read_number(int c, Token *out) {
       if (c == '_') {
         break;
       } else if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_FRAC;
         break;
       } else {
@@ -343,11 +460,11 @@ static int read_number(int c, Token *out) {
     case NUM_EXP_START:
       // Za e/E musi ist znamienko alebo cislica
       if (c == '+' || c == '-') {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP_SIGN;
         break;
       } else if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP;
         break;
       } else {
@@ -358,7 +475,7 @@ static int read_number(int c, Token *out) {
     case NUM_EXP_SIGN:
       // Za znamienkom exponentu musi ist cislica
       if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP;
         break;
       } else {
@@ -368,7 +485,7 @@ static int read_number(int c, Token *out) {
 
     case NUM_EXP:
       if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         break;
       } else if (c == '_') {
         state = NUM_EXP_US;
@@ -383,12 +500,19 @@ static int read_number(int c, Token *out) {
       if (c == '_') {
         break;
       } else if (isdigit(c)) {
-        dynstr_append(&num, c);
+        keep = true;
         state = NUM_EXP;
+        break;
       } else {
         dynstr_free(&num);
         return 1;
       }
+    }
+
+    // Znak pridame az tu, aby bola kontrola chyby pamate na jednom mieste
+    if (keep && !dynstr_append(&num, c)) {
+      dynstr_free(&num);
+      return 99;
     }
   }
 }
@@ -507,25 +631,30 @@ static int read_string(Token *out) {
     // Escape sekvencia: dvojicu znakov "\x" nahradime jednym znakom
     if (c == '\\') {
       int next = fgetc(inp);
+      int translated; // prelozeny znak, ktory pridame do retazca
       switch (next) {
       case 'n':
-        dynstr_append(&str, '\n');
+        translated = '\n';
         break;
       case 't':
-        dynstr_append(&str, '\t');
+        translated = '\t';
         break;
       case 'r':
-        dynstr_append(&str, '\r');
+        translated = '\r';
         break;
       case '"':
-        dynstr_append(&str, '"');
+        translated = '"';
         break;
       case '\\':
-        dynstr_append(&str, '\\');
+        translated = '\\';
         break;
       default:
         dynstr_free(&str);
         return 1; // neznama escape sekvencia
+      }
+      if (!dynstr_append(&str, translated)) {
+        dynstr_free(&str);
+        return 99;
       }
       continue;
     }
@@ -648,6 +777,113 @@ static int read_operator(int c, Token *out) {
 }
 
 /* ========================================================================
+ * Odsadenie: INDENT a DEDENT
+ * ======================================================================== */
+
+/**
+ * Spracuje odsadenie na zaciatku riadku a porovna ho so zasobnikom
+ * urovni odsadenia. Prazdne riadky preskoci (odsadenie nemenia).
+ *
+ * @param out  sem zapise INDENT alebo DEDENT, ak vznikne
+ * @return     0 = poslal INDENT/DEDENT, -1 = ziadny token (rovnake
+ *             odsadenie alebo EOF), 1 = lexikalna chyba (tabulator,
+ *             vynorenie na neexistujucu uroven), 99 = prilis hlboke vnorenie
+ */
+static int read_indent(Token *out) {
+  while (true) {
+    // Spocitame medzery na zaciatku riadku
+    int spaces = 0;
+    int c = fgetc(inp);
+    while (c == ' ') {
+      spaces++;
+      c = fgetc(inp);
+    }
+
+    if (c == '\t') {
+      return 1; // tabulator v odsadeni je lexikalna chyba
+    }
+
+    // Komentare na zaciatku riadku. Riadok, na ktorom je iba komentar,
+    // sa sprava ako prazdny a odsadenie nemeni.
+    while (c == '/') {
+      int next = fgetc(inp);
+      if (next == '/') {
+        skip_line_comment();
+        c = fgetc(inp); // '\n' alebo EOF
+        break;
+      }
+      if (next != '*') {
+        // logicky riadok nemoze zacinat operatorom (napr. '/')
+        ungetc(next, inp);
+        return 2;
+      }
+      bool had_newline;
+      int err = skip_block_comment(&had_newline);
+      if (err != 0) {
+        return err;
+      }
+      if (had_newline) {
+        // viacriadkovy komentar = koniec riadku, za nim nesmie byt token
+        err = check_rest_of_line();
+        if (err != 0) {
+          return err;
+        }
+        c = fgetc(inp); // '\n' alebo EOF
+        break;
+      }
+      // komentar na jednom riadku je ako medzera, pokracujeme za nim
+      c = fgetc(inp);
+      while (c == ' ' || c == '\t') {
+        c = fgetc(inp);
+      }
+    }
+
+    if (c == '\n') {
+      line++; // prazdny riadok odsadenie nemeni, ideme na dalsi
+      continue;
+    }
+    if (c == EOF) {
+      return -1; // DEDENTy na konci suboru riesi lexer_next
+    }
+
+    ungetc(c, inp); // prvy znak tokenu vratime spat
+    at_line_start = false;
+    out->line = line;
+    int top = indent_stack[indent_top];
+
+    // Vacsie odsadenie -> zacina novy blok
+    if (spaces > top) {
+      if (indent_top + 1 >= MAX_INDENT) {
+        return 99;
+      }
+      indent_top++;
+      indent_stack[indent_top] = spaces;
+      out->type = TOK_INDENT;
+      return 0;
+    }
+
+    // Mensie odsadenie -> konci jeden alebo viac blokov
+    if (spaces < top) {
+      int count = 0;
+      while (indent_stack[indent_top] > spaces) {
+        indent_top--;
+        count++;
+      }
+      // Vynorili sme sa na uroven, ktora predtym nebola (napr. 2, ked
+      // zasobnik je [0, 4]) -> chyba
+      if (indent_stack[indent_top] != spaces) {
+        return 1;
+      }
+      out->type = TOK_DEDENT;      // jeden DEDENT posleme hned
+      pending_dedents = count - 1; // ostatne pri dalsich volaniach
+      return 0;
+    }
+
+    return -1; // rovnake odsadenie, ziadny token
+  }
+}
+
+/* ========================================================================
  * Verejne funkcie (rozhranie je popisane v lexer.h)
  * ======================================================================== */
 
@@ -655,6 +891,11 @@ int lexer_init(FILE *input) {
   inp = input;
   line = 1;
   has_ungot = false;
+  indent_stack[0] = 0;
+  indent_top = 0;
+  pending_dedents = 0;
+  paren_depth = 0;
+  at_line_start = true;
   return 0;
 }
 
@@ -671,24 +912,82 @@ int lexer_next(Token *out) {
     return 0;
   }
 
+  out->newline_before = false;
+
+  // Este nevyslane DEDENTy z minuleho vynorenia o viac urovni
+  if (pending_dedents > 0) {
+    pending_dedents--;
+    out->type = TOK_DEDENT;
+    out->line = line;
+    return 0;
+  }
+
+  // Na zaciatku riadku (mimo zatvoriek) najprv spracujeme odsadenie
+  if (at_line_start && paren_depth == 0) {
+    int r = read_indent(out);
+    if (r != -1) {
+      return r;
+    }
+  }
+
   int c = fgetc(inp);
 
-  // Preskocime medzery
-  while (c == ' ') {
+  // Preskocime medzery (v strede riadku je biely znak aj tabulator)
+  while (c == ' ' || c == '\t') {
     c = fgetc(inp);
+  }
+
+  // Komentar v strede riadku
+  if (c == '/') {
+    int next = fgetc(inp);
+    if (next == '/') {
+      // riadkovy komentar: zvysok riadku zahodime, '\n' ostane na vstupe
+      skip_line_comment();
+      c = fgetc(inp);
+    } else if (next == '*') {
+      bool had_newline;
+      int err = skip_block_comment(&had_newline);
+      if (err != 0) {
+        return err;
+      }
+      if (had_newline) {
+        // viacriadkovy komentar = koniec riadku, za nim nesmie byt token
+        err = check_rest_of_line();
+        if (err != 0) {
+          return err;
+        }
+      }
+      // komentar je ako biely znak, citame dalsi token
+      return lexer_next(out);
+    } else {
+      ungetc(next, inp); // nie je to komentar, ale delenie '/'
+    }
   }
   out->line = line;
 
-  // Koniec suboru
+  // Koniec suboru: najprv uzavrieme vsetky otvorene bloky (DEDENT),
+  // az potom posleme EOF
   if (c == EOF) {
+    if (indent_top > 0) {
+      indent_top--;
+      out->type = TOK_DEDENT;
+      return 0;
+    }
     out->type = TOK_EOF;
     return 0;
   }
 
   // Koniec riadku
   if (c == '\n') {
-    out->type = TOK_NEWLINE;
     line++;
+    // Vnutri zatvoriek je koniec riadku iba biely znak
+    if (paren_depth > 0) {
+      int r = lexer_next(out);
+      out->newline_before = true; // kvoli koncovej ciarke v parseri
+      return r;
+    }
+    at_line_start = true;
+    out->type = TOK_NEWLINE;
     return 0;
   }
 
@@ -717,8 +1016,24 @@ int lexer_next(Token *out) {
     return read_string(out);
   }
 
+  // Anotacia @main
+  if (c == '@') {
+    return read_at_main(out);
+  }
+
   // Vsetko ostatne je operator, oddelovac alebo neznamy znak
-  return read_operator(c, out);
+  int r = read_operator(c, out);
+
+  // Pocitame hlbku zatvoriek, aby sme vnutri ignorovali konce riadkov
+  if (r == 0) {
+    if (out->type == TOK_LPAREN || out->type == TOK_LBRACKET) {
+      paren_depth++;
+    } else if ((out->type == TOK_RPAREN || out->type == TOK_RBRACKET) &&
+               paren_depth > 0) {
+      paren_depth--;
+    }
+  }
+  return r;
 }
 
 /*
@@ -730,4 +1045,13 @@ void lexer_unget(Token *tok) {
   has_ungot = true;
 }
 
-void lexer_free(void) { return; }
+/*
+ * Lexer si nedrzi ziadnu dynamicky alokovanu pamat (zasobnik odsadeni je
+ * staticke pole a text v tokenoch patri parseru), preto staci vynulovat stav.
+ */
+void lexer_free(void) {
+  has_ungot = false;
+  indent_top = 0;
+  pending_dedents = 0;
+  paren_depth = 0;
+}

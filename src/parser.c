@@ -4,9 +4,10 @@
 - Autor:   Nguyen Trung Hieu (xnguyet01)
  */
 
+#include "parser.h"
+
 #include "ast.h"
 #include "lexer.h"
-#include "parser.h"
 
 #include <stdbool.h>
 #include <stdio.h>

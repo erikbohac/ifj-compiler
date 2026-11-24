@@ -17,6 +17,11 @@
 
 Token current;
 
+// Dopredne deklarace
+static AstNode* parse_block(void);
+static AstNode* parse_statement(void);
+static AstNode* parse_expression(void);
+
 void next_token(void)
 {
 	int result = lexer_next(&current);
@@ -247,6 +252,180 @@ static AstNode* parse_params(void)
 	return head;
 }
 
+// <var_def> -> (val | var) ID [: <typ>] = <vyraz_nebo_volani>
+static AstNode* parse_var_def(bool is_mutable)
+{
+	AstNode* node = new_node(AST_VAR_DEF);
+	node->is_mutable = is_mutable;
+	next_token();
+
+	node->name = expect_id("ocekavano jmeno promenne");
+	if (current.type == TOK_COLON)
+	{
+		next_token();
+		node->data_type = parse_type();
+	}
+	else
+	{
+		node->data_type = TYPE_NONE;
+	}
+
+	expect(TOK_ASSIGN, "ocekavano '=' pri inicializaci promenne");
+	node->value = parse_expr_or_call();
+	return node;
+}
+
+// <if_stmt> -> if <podminka> then NEWLINE <blok> else NEWLINE <blok>
+static AstNode* parse_if(void)
+{
+	AstNode* node = new_node(AST_IF);
+	next_token();
+
+	node->condition = parse_expression();
+	expect(TOK_KW_THEN, "ocekavano klicove slovo 'then'");
+	expect(TOK_NEWLINE, "ocekavan novy radek za 'then'");
+	skip_newlines();
+
+	node->body = parse_block();
+	skip_newlines();
+
+	expect(TOK_KW_ELSE, "ocekavana vetev 'else'");
+	expect(TOK_NEWLINE, "ocekavan novy radek za 'else'");
+	skip_newlines();
+
+	node->else_body = parse_block();
+	return node;
+}
+
+// <while_stmt> -> while <podminka> do NEWLINE <blok>
+static AstNode* parse_while(void)
+{
+	AstNode* node = new_node(AST_WHILE);
+	next_token();
+
+	node->condition = parse_expression();
+	expect(TOK_KW_DO, "ocekavano klicove slovo 'do'");
+	expect(TOK_NEWLINE, "ocekavan novy radek za 'do'");
+	skip_newlines();
+
+	node->body = parse_block();
+	return node;
+}
+
+// <return_stmt> -> return [<vyraz_nebo_volani>]
+static AstNode* parse_return(void)
+{
+	AstNode* node = new_node(AST_RETURN);
+	next_token();
+
+	if (current.type == TOK_NEWLINE || current.type == TOK_SEMICOLON ||
+		current.type == TOK_DEDENT || current.type == TOK_EOF)
+	{
+		node->value = NULL;
+	}
+	else
+	{
+		node->value = parse_expr_or_call();
+	}
+	return node;
+}
+
+// Jeden prikaz uvnitr bloku
+static AstNode* parse_statement(void)
+{
+	if (current.type == TOK_KW_VAL)
+	{
+		return parse_var_def(false);
+	}
+	if (current.type == TOK_KW_VAR)
+	{
+		return parse_var_def(true);
+	}
+	if (current.type == TOK_KW_IF)
+	{
+		return parse_if();
+	}
+	if (current.type == TOK_KW_WHILE)
+	{
+		return parse_while();
+	}
+	if (current.type == TOK_KW_RETURN)
+	{
+		return parse_return();
+	}
+
+	if (current.type == TOK_ID)
+	{
+		Token id_tok = current;
+		next_token();
+
+		if (current.type == TOK_ASSIGN)
+		{
+			AstNode* assign = new_node(AST_ASSIGN);
+			assign->name = id_tok.value.str_val;
+			next_token();
+			assign->value = parse_expr_or_call();
+			return assign;
+		}
+		else
+		{
+			lexer_unget(&current);
+			current = id_tok;
+			return parse_expr_or_call();
+		}
+	}
+
+	return parse_expression();
+}
+
+// <blok> -> INDENT <prikazy> DEDENT
+static AstNode* parse_block(void)
+{
+	expect(TOK_INDENT, "ocekavano odsazeni noveho bloku");
+	skip_newlines();
+
+	if (current.type == TOK_DEDENT)
+	{
+		syntax_error("blok nesmi byt prazdny");
+	}
+
+	AstNode *head = NULL, *tail = NULL;
+
+	while (current.type != TOK_DEDENT && current.type != TOK_EOF)
+	{
+		AstNode* stmt = parse_statement();
+		append_node(&head, &tail, stmt);
+
+		if (current.type == TOK_SEMICOLON)
+		{
+			next_token();
+			if (current.type == TOK_NEWLINE)
+			{
+				skip_newlines();
+			}
+		}
+		else if (current.type == TOK_NEWLINE)
+		{
+			skip_newlines();
+		}
+		else if (current.type == TOK_DEDENT)
+		{
+			break;
+		}
+		else if (stmt->kind == AST_IF || stmt->kind == AST_WHILE)
+		{
+			// if a while konci vlastnim blokem (DEDENT), oddelovac neni potreba
+		}
+		else
+		{
+			syntax_error("ocekavan konec radku nebo ';' za prikazem");
+		}
+	}
+
+	expect(TOK_DEDENT, "ocekavano ukonceni odsazeneho bloku");
+	return head;
+}
+
 // <funkce> -> [@main] def ID ( <param_list> ) [: <typ>] = (<vyraz_nebo_volani> | NEWLINE <blok>)
 static AstNode* parse_function(void)
 {
@@ -283,14 +462,22 @@ static AstNode* parse_function(void)
 
 	expect(TOK_ASSIGN, "ocekavano '=' v definici funkce");
 
-	func->body = parse_expr_or_call();
 	if (current.type == TOK_NEWLINE)
 	{
 		skip_newlines();
+		func->body = parse_block();
 	}
-	else if (current.type != TOK_EOF)
+	else
 	{
-		syntax_error("ocekavan novy radek za jednoradkovou funkci");
+		func->body = parse_expr_or_call();
+		if (current.type == TOK_NEWLINE)
+		{
+			skip_newlines();
+		}
+		else if (current.type != TOK_EOF)
+		{
+			syntax_error("ocekavan novy radek za jednoradkovou funkci");
+		}
 	}
 
 	return func;

@@ -1,0 +1,60 @@
+Checks: >
+  -*,
+  clang-analyzer-*,
+  bugprone-*,
+  performance-*,
+  readability-identifier-naming,
+  readability-inconsistent-declaration-parameter-name,
+  readability-misleading-indentation
+
+WarningsAsErrors: ''
+
+HeaderFilterRegex: '.*'
+
+FormatStyle: file
+
+CheckOptions:
+  # Functions
+  - key: readability-identifier-naming.FunctionCase
+    value: lower_case
+
+  # Variables
+  - key: readability-identifier-naming.VariableCase
+    value: lower_case
+
+  - key: readability-identifier-naming.ParameterCase
+    value: lower_case
+
+  - key: readability-identifier-naming.LocalVariableCase
+    value: lower_case
+
+  - key: readability-identifier-naming.GlobalVariableCase
+    value: lower_case
+
+  # Types
+  - key: readability-identifier-naming.TypedefCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.StructCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.UnionCase
+    value: CamelCase
+
+  - key: readability-identifier-naming.EnumCase
+    value: CamelCase
+
+  # Enum constants
+  - key: readability-identifier-naming.EnumConstantCase
+    value: UPPER_CASE
+
+  # Constants
+  - key: readability-identifier-naming.ConstantCase
+    value: UPPER_CASE
+
+  - key: readability-identifier-naming.GlobalConstantCase
+    value: UPPER_CASE
+
+  # Macros
+  - key: readability-identifier-naming.MacroDefinitionCase
+    value: UPPER_CASE

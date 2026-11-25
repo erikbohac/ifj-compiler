@@ -35,7 +35,7 @@ typedef enum
 	TYPE_DOUBLE,
 	TYPE_BOOL,
 	TYPE_UNIT,
-} Datatype;
+} DataType;
 
 // Operatory ve vyrazech
 typedef enum
@@ -53,7 +53,7 @@ typedef enum
 	OP_LESSOREQUAL,
 	OP_GREATEROREQUAL,
 
-} Optype;
+} OpType;
 
 // Uzel stromu. Kazdy druh uzlu pouziva jen nektera pole, ostatni jsou NULL / 0
 typedef struct AstNode
@@ -62,12 +62,12 @@ typedef struct AstNode
 	int line;
 	struct AstNode* next; // dalsi uzel v seznamu
 	char* name;
-	Datatype data_type; // u definic napsany typ u vyrazu typ vysledku
+	DataType data_type; // u definic napsany typ u vyrazu typ vysledku
 	long long int_val;	// hodnota celociselneho literalu
 	double double_val;
 	char* str_val;
 
-	Optype op;
+	OpType op;
 	struct AstNode* left; // u UNARY_OP jediny operand
 	struct AstNode* right;
 	struct AstNode* condition;

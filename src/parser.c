@@ -8,6 +8,7 @@
 #include "parser.h"
 
 #include "ast.h"
+#include "expr.h"
 #include "lexer.h"
 
 #include <stdbool.h>
@@ -20,7 +21,6 @@ Token current;
 // Dopredne deklarace
 static AstNode* parse_block(void);
 static AstNode* parse_statement(void);
-static AstNode* parse_expression(void);
 
 void next_token(void)
 {
@@ -117,58 +117,6 @@ static Datatype parse_type(void)
 	}
 	next_token();
 	return type;
-}
-
-// Docasna funkce pro vyrazy (termy a literal ())
-static AstNode* parse_expression(void)
-{
-	AstNode* node = NULL;
-	if (current.type == TOK_ID)
-	{
-		node = new_node(AST_ID);
-		node->name = current.value.str_val;
-		next_token();
-	}
-	else if (current.type == TOK_LIT_INT)
-	{
-		node = new_node(AST_LIT);
-		node->data_type = TYPE_INT;
-		node->int_val = current.value.int_val;
-		next_token();
-	}
-	else if (current.type == TOK_LIT_DOUBLE)
-	{
-		node = new_node(AST_LIT);
-		node->data_type = TYPE_DOUBLE;
-		node->double_val = current.value.double_val;
-		next_token();
-	}
-	else if (current.type == TOK_LIT_STRING)
-	{
-		node = new_node(AST_LIT);
-		node->data_type = TYPE_STRING;
-		node->str_val = current.value.str_val;
-		next_token();
-	}
-	else if (current.type == TOK_LPAREN)
-	{
-		next_token();
-		if (current.type == TOK_RPAREN)
-		{
-			node = new_node(AST_LIT);
-			node->data_type = TYPE_UNIT;
-			next_token();
-		}
-		else
-		{
-			syntax_error("nepodporovany vyraz (ceka na precedencni analyzu)");
-		}
-	}
-	else
-	{
-		syntax_error("ocekavan vyraz");
-	}
-	return node;
 }
 
 // Rozhodne, zda nasleduje volani funkce nebo vyraz

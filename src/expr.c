@@ -73,7 +73,7 @@ typedef struct
 {
 	ItemKind kind;
 	Symbol sym;	   // druh terminalu
-	Optype op;	   // druh operatoru
+	OpType op;	   // druh operatoru
 	AstNode* node; // uzel pro id a pro E
 } Item;
 
@@ -84,7 +84,7 @@ static int top;			  // index vrcholu zasobniku
 static bool unit_pending; // nasel se literal ()
 
 // Vlozi polozku na vrchol zasobniku.
-static void push(ItemKind kind, Symbol sym, Optype op, AstNode* node)
+static void push(ItemKind kind, Symbol sym, OpType op, AstNode* node)
 {
 	if (top + 1 >= STACK_MAX)
 	{
@@ -153,7 +153,7 @@ static AstNode* make_term(void)
 
 // Urci symbol tabulky pro aktualni token.
 // prev_operand = true, kdyz pred tokenem byl operand (id nebo ')').
-static Symbol get_symbol(bool prev_operand, int depth, Optype* op)
+static Symbol get_symbol(bool prev_operand, int depth, OpType* op)
 {
 	*op = OP_NONE;
 	if (unit_pending)
@@ -289,7 +289,7 @@ AstNode* parse_expression(void)
 
 	while (true)
 	{
-		Optype op;
+		OpType op;
 		Symbol b = get_symbol(prev_operand, depth, &op);
 		int a_index = top_terminal();
 		Symbol a = stack[a_index].sym;

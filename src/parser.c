@@ -94,9 +94,9 @@ static void append_node(AstNode** head, AstNode** tail, AstNode* node)
 }
 
 // <typ> -> Int | Double | String | Unit
-static Datatype parse_type(void)
+static DataType parse_type(void)
 {
-	Datatype type;
+	DataType type;
 	switch (current.type)
 	{
 	case TOK_KW_INT:

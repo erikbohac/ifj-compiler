@@ -50,7 +50,7 @@ typedef struct
  * Tabulka vsetkych klucovych slov jazyka IFJ26 (vratane rozsireni).
  * Pouziva ju find_keyword na rozlisenie klucoveho slova od identifikatora.
  */
-static const Keyword keywords[] = {
+static const Keyword KEYWORDS[] = {
 	{"def", TOK_KW_DEF},	   {"do", TOK_KW_DO},		  {"else", TOK_KW_ELSE},
 	{"if", TOK_KW_IF},		   {"import", TOK_KW_IMPORT}, {"return", TOK_KW_RETURN},
 	{"then", TOK_KW_THEN},	   {"val", TOK_KW_VAL},		  {"var", TOK_KW_VAR},
@@ -70,12 +70,12 @@ static const Keyword keywords[] = {
  */
 static TokenType find_keyword(const char* word)
 {
-	int length = sizeof(keywords) / sizeof(keywords[0]);
-	for (int i = 0; i < length; i++)
+	size_t length = sizeof(KEYWORDS) / sizeof(KEYWORDS[0]);
+	for (size_t i = 0; i < length; i++)
 	{
-		if (strcmp(word, keywords[i].text) == 0)
+		if (strcmp(word, KEYWORDS[i].text) == 0)
 		{
-			return keywords[i].type;
+			return KEYWORDS[i].type;
 		}
 	}
 	return TOK_ID;
@@ -171,7 +171,7 @@ static int skip_block_comment(bool* had_newline)
 static int check_rest_of_line(void)
 {
 	int c = fgetc(inp);
-	while (c == ' ' || c == '\t')
+	while (c == ' ' || c == '\t' || c == '\r')
 	{
 		c = fgetc(inp);
 	}
@@ -227,7 +227,7 @@ static int read_word(int c, Token* out)
 	// Pridavame znaky, kym patria do slova (pismena, cislice, podciarknik)
 	while (isalnum(c) || c == '_')
 	{
-		if (!dynstr_append(&word, c))
+		if (!dynstr_append(&word, (char)c))
 		{
 			dynstr_free(&word);
 			return 99; // chyba alokacie pamate
@@ -396,7 +396,7 @@ static int read_number(int c, Token* out)
 	}
 
 	// Prvy znak patri do cisla
-	if (!dynstr_append(&num, c))
+	if (!dynstr_append(&num, (char)c))
 	{
 		dynstr_free(&num);
 		return 99;
@@ -617,7 +617,7 @@ static int read_number(int c, Token* out)
 		}
 
 		// Znak pridame az tu, aby bola kontrola chyby pamate na jednom mieste
-		if (keep && !dynstr_append(&num, c))
+		if (keep && !dynstr_append(&num, (char)c))
 		{
 			dynstr_free(&num);
 			return 99;
@@ -688,7 +688,7 @@ static int read_multiline_string(Token* out)
 			line++;
 		}
 
-		if (!dynstr_append(&str, c))
+		if (!dynstr_append(&str, (char)c))
 		{
 			dynstr_free(&str);
 			return 99;
@@ -742,8 +742,9 @@ static int read_string(Token* out)
 	{
 		int c = fgetc(inp);
 
+		// Koniec retazca
 		if (c == '"')
-		{ // koniec retazca
+		{
 			out->type = TOK_LIT_STRING;
 			out->value.str_val = str.data;
 			return 0;
@@ -782,7 +783,7 @@ static int read_string(Token* out)
 				dynstr_free(&str);
 				return 1; // neznama escape sekvencia
 			}
-			if (!dynstr_append(&str, translated))
+			if (!dynstr_append(&str, (char)translated))
 			{
 				dynstr_free(&str);
 				return 99;
@@ -790,7 +791,7 @@ static int read_string(Token* out)
 			continue;
 		}
 
-		if (!dynstr_append(&str, c))
+		if (!dynstr_append(&str, (char)c))
 		{
 			dynstr_free(&str);
 			return 99;
@@ -929,10 +930,10 @@ static int read_operator(int c, Token* out)
 			return 1; // samotne & nemoze byt, preto je to chyba
 		}
 		return 0;
-	}
 
-	// Znak nepatri ziadnemu tokenu
-	return 1;
+	default:
+		return 1; // znak nepatri ziadnemu tokenu
+	}
 }
 
 /* ========================================================================
@@ -946,7 +947,8 @@ static int read_operator(int c, Token* out)
  * @param out  sem zapise INDENT alebo DEDENT, ak vznikne
  * @return     0 = poslal INDENT/DEDENT, -1 = ziadny token (rovnake
  *             odsadenie alebo EOF), 1 = lexikalna chyba (tabulator,
- *             vynorenie na neexistujucu uroven), 99 = prilis hlboke vnorenie
+ *             vynorenie na neexistujucu uroven, neukonceny komentar),
+ *             2 = riadok zacina operatorom '/', 99 = prilis hlboke vnorenie
  */
 static int read_indent(Token* out)
 {
@@ -961,9 +963,17 @@ static int read_indent(Token* out)
 			c = fgetc(inp);
 		}
 
-		if (c == '\t')
+		// Dalsie biele znaky. Tabulator si zapamatame: je chybou iba vtedy,
+		// ked je riadok neprazdny (prazdne riadky sa ignoruju). Znak '\r'
+		// (konce riadkov z Windows) berieme ako biely znak.
+		bool tab_in_indent = false;
+		while (c == ' ' || c == '\t' || c == '\r')
 		{
-			return 1; // tabulator v odsadeni je lexikalna chyba
+			if (c == '\t')
+			{
+				tab_in_indent = true;
+			}
+			c = fgetc(inp);
 		}
 
 		// Komentare na zaciatku riadku. Riadok, na ktorom je iba komentar,
@@ -1002,7 +1012,7 @@ static int read_indent(Token* out)
 			}
 			// komentar na jednom riadku je ako medzera, pokracujeme za nim
 			c = fgetc(inp);
-			while (c == ' ' || c == '\t')
+			while (c == ' ' || c == '\t' || c == '\r')
 			{
 				c = fgetc(inp);
 			}
@@ -1016,6 +1026,12 @@ static int read_indent(Token* out)
 		if (c == EOF)
 		{
 			return -1; // DEDENTy na konci suboru riesi lexer_next
+		}
+
+		// Riadok je neprazdny: tabulator v jeho odsadeni je lexikalna chyba
+		if (tab_in_indent)
+		{
+			return 1;
 		}
 
 		ungetc(c, inp); // prvy znak tokenu vratime spat
@@ -1078,9 +1094,14 @@ int lexer_init(FILE* input)
 }
 
 /*
- * Postup: preskoci medzery a podla prveho znaku rozhodne, aky token cita.
- * Samotne citanie robia pomocne funkcie read_word, read_number, read_string
- * a read_operator. Ak znak nepozna ani read_operator, je to lexikalna chyba.
+ * Postup:
+ *  - ak parser vratil token cez lexer_unget, vrati najprv ten,
+ *  - posle zvysne DEDENTy z vynorenia o viac urovni naraz,
+ *  - na zaciatku riadku spracuje odsadenie (read_indent),
+ *  - preskoci biele znaky a komentare,
+ *  - podla prveho znaku rozhodne, aky token cita; samotne citanie robia
+ *    read_word, read_number, read_string, read_at_main a read_operator.
+ * Ak znak nepozna ani read_operator, je to lexikalna chyba.
  */
 int lexer_next(Token* out)
 {
@@ -1115,8 +1136,8 @@ int lexer_next(Token* out)
 
 	int c = fgetc(inp);
 
-	// Preskocime medzery (v strede riadku je biely znak aj tabulator)
-	while (c == ' ' || c == '\t')
+	// Preskocime biele znaky (v strede riadku aj tabulator a '\r' z Windows)
+	while (c == ' ' || c == '\t' || c == '\r')
 	{
 		c = fgetc(inp);
 	}
@@ -1254,7 +1275,8 @@ void lexer_unget(Token* tok)
 
 /*
  * Lexer si nedrzi ziadnu dynamicky alokovanu pamat (zasobnik odsadeni je
- * staticke pole a text v tokenoch patri parseru), preto staci vynulovat stav.
+ * staticke pole a text v tokenoch prebera ten, kto token dostal), preto
+ * staci vynulovat stav.
  */
 void lexer_free(void)
 {

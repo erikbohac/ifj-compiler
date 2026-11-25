@@ -114,7 +114,12 @@ int lexer_init(FILE* input);
  * Nacita dalsi token zo vstupu.
  *
  * @param out  sem sa zapise nacitany token
- * @return     0 = OK, 1 = lexikalna chyba, 99 = chyba alokacie (malloc)
+ * @return     0 = OK, 1 = lexikalna chyba, 2 = syntakticka chyba (logicky
+ *             riadok zacina operatorom), 99 = chyba alokacie (malloc)
+ * @note       Text v str_val (TOK_ID, TOK_LIT_STRING) je alokovany cez malloc
+ *             a prebera ho volajuci (musi ho ulozit alebo uvolnit cez free).
+ * @note       Posledny prikaz pred DEDENT alebo EOF nemusi koncit NEWLINE
+ *             (ak subor nekonci znakom noveho riadku).
  */
 int lexer_next(Token* out);
 

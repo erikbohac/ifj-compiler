@@ -28,6 +28,7 @@ typedef enum
 	TOK_KW_DOUBLE,
 	TOK_KW_STRING,
 	TOK_KW_UNIT,
+
 	// Klucove slova rozsirenie
 	TOK_KW_BOOLEAN,
 	TOK_KW_CASE,
@@ -39,12 +40,15 @@ typedef enum
 	TOK_KW_TYPE,
 	TOK_KW_TRUE,
 	TOK_KW_FALSE,
+
 	// Identifikator
 	TOK_ID, // meno funkcie, premenna
+
 	// Literaly
 	TOK_LIT_INT,	// 42, 1_000
 	TOK_LIT_DOUBLE, // 1.0, .5, 1e10, 1.1E2
 	TOK_LIT_STRING, // "Ahoj", "Riadok 1 \n Riadok 2", "Povedal \"ahoj\"", """viac riadkovy"""
+
 	// Operatory
 	TOK_PLUS,	// "+"
 	TOK_MINUS,	// "-"
@@ -57,6 +61,7 @@ typedef enum
 	TOK_EQ,		// "=="
 	TOK_NEQ,	// "!="
 	TOK_ASSIGN, // "="
+
 	// Oddelovace
 	TOK_LPAREN,	   // "("
 	TOK_RPAREN,	   // ")"
@@ -64,13 +69,16 @@ typedef enum
 	TOK_COMMA,	   // ","
 	TOK_SEMICOLON, // ";"
 	TOK_DOT,	   // "."
+
 	// Specialne
 	TOK_AT_MAIN, // "@main"
+
 	// Rozlozenie
 	TOK_NEWLINE, // "\n" alebo koniec logickeho riadku
 	TOK_INDENT,	 // "{" zaciatok bloku
-	TOK_DEDENT,	 // "}" koniec blokum
+	TOK_DEDENT,	 // "}" koniec bloku
 	TOK_EOF,	 // "End Of File"
+
 	// Rozsirenie
 	TOK_NOT,		// "!"
 	TOK_AND,		// "&&"

@@ -1,8 +1,8 @@
 /*
 Projekt:Implementace překladače imperativního jazyka IFJ26
-Rozhrani abstraktniho syntaktickeho stromu
-Soubor:  ast.c
-Autor:   xnguyet01 Nguyen Trung Hieu
+Soubor:  ast.h
+Popis : Rozhrani abstraktniho syntaktickeho stromu
+Autor:  Nguyen Trung Hieu (xnguyet01)
 */
 #ifndef AST_H
 #define AST_H
@@ -62,8 +62,8 @@ typedef struct AstNode
 	int line;
 	struct AstNode* next; // dalsi uzel v seznamu
 	char* name;
-	DataType data_type;
-	; // u definic napsany typ u vyrazu typ vysledku
+	DataType data_type; // u definic napsany typ u vyrazu typ vysledku
+	long long int_val;	// hodnota celociselneho literalu
 	double double_val;
 	char* str_val;
 

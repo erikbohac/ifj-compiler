@@ -54,6 +54,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable)
 			node->data_type = fn->type;
 			return 0;
 		}
+
 		case AST_BINARY_OP:
 		{
 			int err = analyse_expression(node->left, symtable);
@@ -100,6 +101,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable)
 					return 3;
 			}
 		}
+
 		case AST_UNARY_OP:
 		{
 			int err = analyse_expression(node->left, symtable);
@@ -142,6 +144,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable)
 			node->is_mutable = (sym_data->tag == TAG_VAR);
 			return 0;
 		}
+
 		default:
 			return 3;
 	}
@@ -157,13 +160,25 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 	switch (node->kind)
 	{
 		case AST_PROGRAM:
+		{
 			err = analyse_node(node->body, symtable);
 			if (err != 0)
 				return err;
 
 			break;
+		}
 
 		case AST_FUNC_DEF:
+		{
+			if(node->name == NULL || symtable == NULL)
+				return 3;
+
+			if(table_search(*symtable, node->name) != NULL)
+				return 3;
+
+			if (!table_insertion(symtable, node->name, node->data_type, TAG_FUNCTION, node->line))
+				return 3;
+
 			err = analyse_node(node->parameters, symtable);
 			if (err != 0)
 				return err;
@@ -171,11 +186,27 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 			err = analyse_node(node->body, symtable);
 			if (err != 0)
 				return err;
-
 			break;
+		}
 
 		case AST_PARAMETR:
+		{
+			if(node->name == NULL || symtable == NULL || node->data_type == TYPE_NONE)
+				return 3;
+			
+			if(table_search(*symtable, node->name) != NULL)
+				return 3;
+			
+			if (!table_insertion(symtable, node->name, node->data_type, TAG_VAR, node->line))
+				return 3;
+			
+			AVLNode* inserted = table_search(*symtable, node->name);
+			if(inserted != NULL && inserted->data != NULL){
+				SymbolData* sym_data = (SymbolData*)inserted->data;
+				sym_data->is_inicialized = true;
+			}
 			break;
+		}
 
 		case AST_VAR_DEF:
 		{
@@ -211,6 +242,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 			}
 			break;
 		}
+
 		case AST_ASSIGN:
 		{
 			if (node->name == NULL || symtable == NULL || *symtable == NULL || node->value == NULL)
@@ -236,6 +268,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 		}
 
 		case AST_IF:
+		{
 			err = analyse_expression(node->condition, symtable);
 			if (err != 0)
 				return err;
@@ -249,8 +282,10 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 				return err;
 
 			break;
+		}
 
 		case AST_WHILE:
+		{
 			err = analyse_expression(node->condition, symtable);
 			if (err != 0)
 				return err;
@@ -260,27 +295,38 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 				return err;
 
 			break;
+		}
 
 		case AST_RETURN:
-			err = analyse_expression(node->value, symtable);
-			if (err != 0)
-				return err;
-
+		{
+			if(node->value != 0){
+				err = analyse_expression(node->value, symtable);
+				if (err != 0)
+					return err;
+			}
+			
 			break;
+		}
 
 		case AST_FUNC_CALL:
-			err = analyse_expression(node->arguments, symtable);
+		{
+			err = analyse_expression(node, symtable);
 			if (err != 0)
 				return err;
 
 			break;
+		}
 
 		case AST_BINARY_OP:
-			int err = analyse_expression(node->left, symtable);
-			if(err != 0)
+		{
+			err = analyse_expression(node->left, symtable);
+			if (err != 0)
 				return err;
-
-			return analyse_expression(node->right, symtable);
+			
+			err = analyse_expression(node->right, symtable);
+			if (err != 0)
+				return err;
+		}
 
 		case AST_UNARY_OP:
 
@@ -294,6 +340,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable)
 
 			break;
 		}
+
 		default:
 			return 3;
 	}

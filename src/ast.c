@@ -1,8 +1,9 @@
-/*Projekt:Implementace překladače imperativního jazyka IFJ26
-Rozhrani abstraktniho syntaktickeho stromu
-Soubor:  ast.c
-Autor:   xnguyet01 Nguyen Trung Hieu
-*/
+/*
+ * Projekt: Implementace prekladace imperativniho jazyka IFJ26
+ * Soubor:  ast.c
+ * Popis:   Vytvareni a uvolnovani uzlu AST
+ * Autor:   Nguyen Trung Hieu (xnguyet01)
+ */
 #include "ast.h"
 
 #include <stdlib.h> // calloc, free

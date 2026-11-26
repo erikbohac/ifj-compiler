@@ -63,3 +63,12 @@ static void emit(const char* format, ...)
 		fail("cannot write generated code");
 	}
 }
+
+/*
+ * Vrátí globálně unikátní číslo interního návěští.
+ */
+static size_t label(Generator* gen)
+{
+	return gen->next_label++;
+}
+

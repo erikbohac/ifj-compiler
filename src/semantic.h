@@ -13,6 +13,6 @@
 
 #include <stdbool.h>
 
-bool semantic_analyze(AstNode* node, AVLNode** symtable);
+int semantic_analyze(AstNode* node, AVLNode** symtable);
 
 #endif

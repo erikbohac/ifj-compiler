@@ -24,8 +24,7 @@ format:
 check:
 	clang-format --dry-run --Werror $(CODE_FILES)
 	@for file in $(SOURCES); do \
-		clang-tidy --warnings-as-errors='*' "$$file" -- \
-		-std=c23 -I$(INCLUDE_DIR) -Xclang -analyzer-config -Xclang max-nodes=10000 || exit 1; \
+		clang-tidy --warnings-as-errors='*' "$$file" -- -std=c23 -I$(INCLUDE_DIR) || exit 1; \
 	done
 
 test: #build

@@ -18,6 +18,7 @@ typedef enum
 	AST_ASSIGN,
 	AST_IF,
 	AST_WHILE,
+	AST_FOR,
 	AST_RETURN,
 	AST_FUNC_CALL,
 	AST_BINARY_OP,
@@ -52,7 +53,9 @@ typedef enum
 	OP_GREATERTHAN,
 	OP_LESSOREQUAL,
 	OP_GREATEROREQUAL,
-
+	OP_AND,
+	OP_OR,
+	OP_NOT,
 } OpType;
 
 // Uzel stromu. Kazdy druh uzlu pouziva jen nektera pole, ostatni jsou NULL / 0
@@ -76,6 +79,11 @@ typedef struct AstNode
 	struct AstNode* parameters;
 	struct AstNode* arguments;
 	struct AstNode* value;
+
+	struct AstNode* range_start;
+	struct AstNode* range_end;
+	struct AstNode* step;
+	struct AstNode* guard;
 
 	bool is_mutable;
 	bool is_main;

@@ -137,3 +137,29 @@ static void bind(Generator* gen, const char* name, size_t id, DataType type)
     gen->locals[gen->count++] = (Local){name, id, type};
 }
 
+/*
+ * Vypíše řetězcový operand a nahradí rezervované a netisknutelné
+ * znaky jejich číselnými escape sekvencemi.
+ */
+static void emit_string(const char* str)
+{
+	if (!str)
+	{
+		fail("missing string literal");
+	}
+
+	emit("string@");
+
+	for (const unsigned char* byte = (const unsigned char*)str; *byte; ++byte)
+	{
+		if (*byte <= 32 || *byte == '#' || *byte == '\\' || *byte >= 127)
+		{
+			emit("\\%03u", (unsigned)*byte);
+		}
+		else
+		{
+			emit("%c", *byte);
+		}
+	}
+}
+

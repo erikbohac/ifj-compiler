@@ -19,4 +19,3 @@
 void codegen_generate(const AstNode* program);
 
 #endif
-

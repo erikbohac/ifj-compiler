@@ -58,6 +58,7 @@ static void emit(const char* format, ...)
 	va_start(args, format);
 	int result = vprintf(format, args);
 	va_end(args);
+
 	if (result < 0)
 	{
 		fail("cannot write generated code");
@@ -85,6 +86,7 @@ static Local lookup(const Generator* gen, const char* name)
 			return gen->locals[i - 1];
 		}
 	}
+
 	fail("unresolved local variable");
 	return (Local){0};
 }
@@ -102,6 +104,36 @@ static const AstNode* find_function(const Generator* g, const char* name)
 			return find;
 		}
 	}
+
     return NULL;
+}
+
+/*
+ * Přidá vazbu lokální proměnné do aktuálního rozsahu platnosti.
+ * Při opuštění bloku se vazba odstraní obnovením původní hodnoty count.
+ * V případě potřeby zvětší kapacitu zásobníku lokálních proměnných.
+ */
+static void bind(Generator* gen, const char* name, size_t id, DataType type)
+{
+	if (!name || type == TYPE_NONE)
+	{
+		fail("unresolved local declaration");
+	}
+
+    if (gen->count == gen->capacity)
+    {
+		size_t capacity = gen->capacity ? gen->capacity * 2 : 16;
+		Local* new_locals = realloc(gen->locals, capacity * sizeof(*new_locals));
+
+		if (!new_locals)
+		{
+			fail("out of memory");
+		}
+
+		gen->locals = new_locals;
+		gen->capacity = capacity;
+    }
+
+    gen->locals[gen->count++] = (Local){name, id, type};
 }
 

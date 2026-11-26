@@ -13,7 +13,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 /*
  * Jeden záznam pro každou lokální proměnnou v aktuálním rozsahu platnosti.
  * Pole slouží jako zásobník lexikálních vazeb.
@@ -23,8 +22,7 @@ typedef struct
 	const char* name;
 	size_t id;
 	DataType type;
-}
-Local;
+} Local;
 
 /*
  * Kontext generátoru kódu obsahující AST programu, aktuální funkci,
@@ -40,6 +38,28 @@ typedef struct
 	size_t capacity;
 	size_t next_var;
 	size_t next_label;
-}
-Generator;
+} Generator;
 
+/*
+ * Oznámí chybu alokace, výstupu nebo jiný předpoklad generátoru.
+ */
+static void fail(const char* message)
+{
+	fprintf(stderr, "codegen: %s\n", message);
+	exit(99);
+}
+
+/*
+ * Vypíše formátovanou instrukci IFJcode26 nebo několik řádků kódu.
+ */
+static void emit(const char* format, ...)
+{
+	va_list args;
+	va_start(args, format);
+	int result = vprintf(format, args);
+	va_end(args);
+	if (result < 0)
+	{
+		fail("cannot write generated code");
+	}
+}

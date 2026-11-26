@@ -89,3 +89,19 @@ static Local lookup(const Generator* gen, const char* name)
 	return (Local){0};
 }
 
+/*
+ * Vyhledá uživatelsky definovanou funkci podle názvu.
+ * Podporuje také volání funkcí definovaných později v programu.
+ */
+static const AstNode* find_function(const Generator* g, const char* name)
+{
+	for (const AstNode* find = g->program->body; find; find = find->next)
+	{
+		if (strcmp(find->name, name) == 0)
+		{
+			return find;
+		}
+	}
+    return NULL;
+}
+

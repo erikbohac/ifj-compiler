@@ -72,3 +72,20 @@ static size_t label(Generator* gen)
 	return gen->next_label++;
 }
 
+/*
+ * Vyhledá aktuálně viditelnou deklaraci proměnné, počínaje
+ * nejvnitřnějším rozsahem platnosti.
+ */
+static Local lookup(const Generator* gen, const char* name)
+{
+	for (size_t i = gen->count; i > 0; --i)
+	{
+		if (strcmp(gen->locals[i - 1].name, name) == 0)
+		{
+			return gen->locals[i - 1];
+		}
+	}
+	fail("unresolved local variable");
+	return (Local){0};
+}
+

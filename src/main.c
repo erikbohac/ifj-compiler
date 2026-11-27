@@ -57,12 +57,12 @@ int main(void)
 		return err;
 	}
 
-	// 4. Generovanie IFJcode26 na stdout
-	codegen_generate(program);
+	// 4. Generovanie IFJcode26 na stdout (0 = OK, 99 = interna chyba)
+	err = codegen_generate(program);
 
 	// 5. Uvolnime vsetku pamat
 	table_free(&symtable);
 	ast_free(program);
 	lexer_free();
-	return 0;
+	return err;
 }

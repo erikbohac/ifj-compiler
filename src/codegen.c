@@ -520,3 +520,59 @@ static DataType binary(Generator* gen, const AstNode* nodes)
 	return common;
 }
 
+/*
+ * Generuje kód výrazu podle druhu uzlu AST a vrací datový typ
+ * výsledné hodnoty. U unárního operátoru negace provádí změnu
+ * znaménka a u celočíselných hodnot normalizaci do rozsahu typu Int.
+ */
+static DataType expression(Generator* gen, const AstNode* nodes)
+{
+	if (!nodes)
+	{
+		fail("missing expression");
+	}
+
+	switch (nodes->kind)
+	{
+		case AST_LIT:
+			return literal(nodes);
+		case AST_ID:
+		{
+			Local var = lookup(gen, nodes->name);
+			emit("PUSHS LF@v%zu\n", var.id);
+			return var.type;
+		}
+		case AST_FUNC_CALL:
+			return call(gen, nodes);
+		case AST_BINARY_OP:
+			return binary(gen, nodes);
+		case AST_UNARY_OP:
+			if (nodes->op != OP_NEG)
+			{
+				fail("unsupported unary operator");
+			}
+
+			DataType type = expression(gen, nodes->left);
+			if (type == TYPE_INT)
+			{
+				emit("PUSHS int@-1\nMULS\n");
+				wrap_int(gen);
+			}
+			else if (type == TYPE_DOUBLE)
+			{
+				emit("PUSHS float@-0x1p+0\nMULS\n");
+			}
+			else
+			{
+				fail("invalid unary operand");
+			}
+
+			return type;
+		default:
+			fail("unexpected expression node");
+			break;
+	}
+
+	return TYPE_NONE;
+}
+

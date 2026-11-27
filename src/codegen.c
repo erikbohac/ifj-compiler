@@ -95,9 +95,9 @@ static Local lookup(const Generator* gen, const char* name)
  * Vyhledá uživatelsky definovanou funkci podle názvu.
  * Podporuje také volání funkcí definovaných později v programu.
  */
-static const AstNode* find_function(const Generator* g, const char* name)
+static const AstNode* find_function(const Generator* gen, const char* name)
 {
-	for (const AstNode* find = g->program->body; find; find = find->next)
+	for (const AstNode* find = gen->program->body; find; find = find->next)
 	{
 		if (strcmp(find->name, name) == 0)
 		{
@@ -167,23 +167,23 @@ static void emit_string(const char* str)
  * Vloží hodnotu literálu na datový zásobník podle jeho datového typu.
  * Každý výraz zanechá na zásobníku právě jednu hodnotu, včetně typu Unit.
  */
-static DataType literal(const AstNode* node)
+static DataType literal(const AstNode* nodes)
 {
-	switch (node->data_type)
+	switch (nodes->data_type)
 	{
 		case TYPE_INT:
-			emit("PUSHS int@%lld\n", node->int_val);
+			emit("PUSHS int@%lld\n", nodes->int_val);
 			break;
         case TYPE_DOUBLE:
-			emit("PUSHS float@%a\n", node->double_val);
+			emit("PUSHS float@%a\n", nodes->double_val);
 			break;
         case TYPE_STRING:
 			emit("PUSHS ");
-			emit_string(node->str_val);
+			emit_string(nodes->str_val);
 			emit("\n");
 			break;
         case TYPE_BOOL:
-			emit("PUSHS bool@%s\n", node->int_val ? "true" : "false");
+			emit("PUSHS bool@%s\n", nodes->int_val ? "true" : "false");
 			break;
         case TYPE_UNIT:
 			emit("PUSHS nil@nil\n");
@@ -193,7 +193,7 @@ static DataType literal(const AstNode* node)
 			break;
 	}
 
-	return node->data_type;
+	return nodes->data_type;
 }
 
 /*
@@ -241,7 +241,7 @@ static void wrap_int(Generator* gen)
 	emit("LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
 }
 
-static DataType expression(Generator* gen, const AstNode* node);
+static DataType expression(Generator* gen, const AstNode* nodes);
 
 /*
  * Vyhodnotí stanovený počet argumentů vestavěné funkce v pořadí,
@@ -281,10 +281,10 @@ static void builtin_args(Generator* gen, const AstNode* args, size_t count, cons
  * Dočasné lokální proměnné se používají až po vyhodnocení argumentů,
  * aby vnořená volání funkcí nemohla přepsat hodnoty operandů.
  */
-static DataType builtin(Generator* gen, const AstNode* node)
+static DataType builtin(Generator* gen, const AstNode* nodes)
 {
-	const char* name = node->name;
-	const AstNode* args = node->arguments;
+	const char* name = nodes->name;
+	const AstNode* args = nodes->arguments;
 
 	if (!strcmp(name, "print") || !strcmp(name, "toStr"))
     {
@@ -412,5 +412,111 @@ static DataType builtin(Generator* gen, const AstNode* node)
 
 	fail("unknown function");
 	return TYPE_NONE;
+}
+
+/*
+ * Generuje volání uživatelsky definované funkce. Argumenty ukládá
+ * na datový zásobník v pořadí jejich výskytu ve zdrojovém kódu.
+ * Volaná funkce je odebírá v opačném pořadí do vlastního rámce
+ * a na zásobník ukládá právě jednu návratovou hodnotu.
+ */
+static DataType call(Generator* gen, const AstNode* nodes)
+{
+	const AstNode* func = find_function(gen, nodes->name);
+
+	if (!func)
+	{
+		return builtin(gen, nodes);
+	}
+
+	const AstNode* args = nodes->arguments;
+	const AstNode* params = func->parameters;
+	while (args && params)
+	{
+		convert(expression(gen, args), params->data_type);
+		args = args->next;
+		params = params->next;
+	}
+
+	if (args || params || func->data_type == TYPE_NONE)
+	{
+		fail("unresolved function signature");
+	}
+
+	emit("CALL $fn_%s\n", func->name);
+	return func->data_type;
+}
+
+/*
+ * Vyhodnotí operandy binárního výrazu zleva doprava a v případě
+ * rozdílných číselných typů provede implicitní konverzi na společný typ.
+ * Následně vygeneruje instrukce odpovídající danému operátoru.
+ * Celočíselné aritmetické výsledky normalizuje do rozsahu typu Int.
+ */
+static DataType binary(Generator* gen, const AstNode* nodes)
+{
+	DataType left_type = expression(gen, nodes->left);
+	DataType right_type = expression(gen, nodes->right);
+	DataType common = left_type;
+
+	if (left_type == TYPE_INT && right_type == TYPE_DOUBLE)
+	{
+		emit("POPS LF@%%b\nINT2FLOATS\nPUSHS LF@%%b\n");
+		common = TYPE_DOUBLE;
+	}
+	else if (left_type == TYPE_DOUBLE && right_type == TYPE_INT)
+	{
+		emit("INT2FLOATS\n");
+		common = TYPE_DOUBLE;
+	}
+    else if (left_type != right_type)
+	{
+		fail("incompatible binary operands");
+	}
+
+	switch (nodes->op)
+	{
+		case OP_ADD:
+			if (common == TYPE_STRING)
+			{
+				emit("POPS LF@%%b\nPOPS LF@%%a\nCONCAT LF@%%a LF@%%a LF@%%b\nPUSHS LF@%%a\n");
+				return TYPE_STRING;
+			}
+			emit("ADDS\n");
+			break;
+        case OP_SUB:
+			emit("SUBS\n");
+			break;
+        case OP_MUL:
+			emit("MULS\n");
+			break;
+        case OP_DIV:
+			emit(common == TYPE_INT ? "IDIVS\n" : "DIVS\n");
+			break;
+        case OP_EQUAL: emit("EQS\n");
+			return TYPE_BOOL;
+        case OP_NOTEQUAL: emit("EQS\nNOTS\n");
+			return TYPE_BOOL;
+        case OP_LESSTHAN: emit("LTS\n");
+			return TYPE_BOOL;
+        case OP_GREATERTHAN: emit("GTS\n");
+			return TYPE_BOOL;
+		case OP_LESSOREQUAL:
+		case OP_GREATEROREQUAL:
+			emit("POPS LF@%%b\nPOPS LF@%%a\nPUSHS LF@%%a\nPUSHS LF@%%b\n");
+			emit(nodes->op == OP_LESSOREQUAL ? "LTS\n" : "GTS\n");
+			emit("PUSHS LF@%%a\nPUSHS LF@%%b\nEQS\nORS\n");
+			return TYPE_BOOL;
+		default:
+			fail("unsupported binary operator");
+			break;
+    }
+
+	if (common == TYPE_INT)
+	{
+		wrap_int(gen);
+	}
+
+	return common;
 }
 

@@ -14,8 +14,8 @@
 /*
  * Vypíše vygenerovaný IFJcode26 na stdout.
  * Očekává sémanticky platný AST, včetně vyřešených návratových typů pro funkce.
- * Vnitřní chyby končí kódem 99.
+ * Vnitřní chyby končí kódem 99, jinak 0.
  */
-void codegen_generate(const AstNode* program);
+int codegen_generate(const AstNode* program);
 
 #endif

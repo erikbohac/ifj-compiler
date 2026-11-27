@@ -105,7 +105,7 @@ static const AstNode* find_function(const Generator* gen, const char* name)
 		}
 	}
 
-    return NULL;
+	return NULL;
 }
 
 /*
@@ -120,8 +120,8 @@ static void bind(Generator* gen, const char* name, size_t id, DataType type)
 		fail("unresolved local declaration");
 	}
 
-    if (gen->count == gen->capacity)
-    {
+	if (gen->count == gen->capacity)
+	{
 		size_t capacity = gen->capacity ? gen->capacity * 2 : 16;
 		Local* new_locals = realloc(gen->locals, capacity * sizeof(*new_locals));
 
@@ -132,9 +132,9 @@ static void bind(Generator* gen, const char* name, size_t id, DataType type)
 
 		gen->locals = new_locals;
 		gen->capacity = capacity;
-    }
+	}
 
-    gen->locals[gen->count++] = (Local){name, id, type};
+	gen->locals[gen->count++] = (Local){name, id, type};
 }
 
 /*
@@ -171,26 +171,26 @@ static DataType literal(const AstNode* literal_node)
 {
 	switch (literal_node->data_type)
 	{
-		case TYPE_INT:
-			emit("PUSHS int@%lld\n", literal_node->int_val);
-			break;
-        case TYPE_DOUBLE:
-			emit("PUSHS float@%a\n", literal_node->double_val);
-			break;
-        case TYPE_STRING:
-			emit("PUSHS ");
-			emit_string(literal_node->str_val);
-			emit("\n");
-			break;
-        case TYPE_BOOL:
-			emit("PUSHS bool@%s\n", literal_node->int_val ? "true" : "false");
-			break;
-        case TYPE_UNIT:
-			emit("PUSHS nil@nil\n");
-			break;
-		default:
-			fail("unknown literal type");
-			break;
+	case TYPE_INT:
+		emit("PUSHS int@%lld\n", literal_node->int_val);
+		break;
+	case TYPE_DOUBLE:
+		emit("PUSHS float@%a\n", literal_node->double_val);
+		break;
+	case TYPE_STRING:
+		emit("PUSHS ");
+		emit_string(literal_node->str_val);
+		emit("\n");
+		break;
+	case TYPE_BOOL:
+		emit("PUSHS bool@%s\n", literal_node->int_val ? "true" : "false");
+		break;
+	case TYPE_UNIT:
+		emit("PUSHS nil@nil\n");
+		break;
+	default:
+		fail("unknown literal type");
+		break;
 	}
 
 	return literal_node->data_type;
@@ -262,13 +262,13 @@ static void builtin_args(Generator* gen, const AstNode* args, size_t count, cons
 		{
 			convert(type, expected[i]);
 			type = expected[i];
-        }
-        if (actual)
-		{
-            actual[i] = type;
 		}
-        args = args->next;
-    }
+		if (actual)
+		{
+			actual[i] = type;
+		}
+		args = args->next;
+	}
 
 	if (args)
 	{
@@ -287,7 +287,7 @@ static DataType builtin(Generator* gen, const AstNode* call_node)
 	const AstNode* args = call_node->arguments;
 
 	if (!strcmp(name, "print") || !strcmp(name, "toStr"))
-    {
+	{
 		DataType type;
 		builtin_args(gen, args, 1, NULL, &type);
 
@@ -301,28 +301,28 @@ static DataType builtin(Generator* gen, const AstNode* call_node)
 
 		switch (type)
 		{
-			case TYPE_INT:
-				emit("INT2STRS\n");
-				break;
-			case TYPE_DOUBLE:
-				emit("FLOAT2STRS\n");
-				break;
-			case TYPE_STRING:
-				break;
-			case TYPE_UNIT:
-				emit("POPS LF@%%a\nPUSHS string@()\n");
-				break;
-			case TYPE_BOOL:
-            {
-				size_t id = label(gen);
-				emit("POPS LF@%%a\nJUMPIFEQ $L%zu_false LF@%%a bool@false\n", id);
-				emit("PUSHS string@true\nJUMP $L%zu_done\nLABEL $L%zu_false\n", id, id);
-				emit("PUSHS string@false\nLABEL $L%zu_done\n", id);
-				break;
-            }
-			default:
-				fail("unresolved toStr argument");
-				break;
+		case TYPE_INT:
+			emit("INT2STRS\n");
+			break;
+		case TYPE_DOUBLE:
+			emit("FLOAT2STRS\n");
+			break;
+		case TYPE_STRING:
+			break;
+		case TYPE_UNIT:
+			emit("POPS LF@%%a\nPUSHS string@()\n");
+			break;
+		case TYPE_BOOL:
+		{
+			size_t id = label(gen);
+			emit("POPS LF@%%a\nJUMPIFEQ $L%zu_false LF@%%a bool@false\n", id);
+			emit("PUSHS string@true\nJUMP $L%zu_done\nLABEL $L%zu_false\n", id, id);
+			emit("PUSHS string@false\nLABEL $L%zu_done\n", id);
+			break;
+		}
+		default:
+			fail("unresolved toStr argument");
+			break;
 		}
 
 		return TYPE_STRING;
@@ -365,7 +365,7 @@ static DataType builtin(Generator* gen, const AstNode* call_node)
 		emit("LABEL $L%zu_min\nMOVE LF@%%a int@-2147483648\n", id);
 		emit("LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
 		return TYPE_INT;
-    }
+	}
 
 	if (!strcmp(name, "strLength"))
 	{
@@ -469,48 +469,52 @@ static DataType binary(Generator* gen, const AstNode* binary_node)
 		emit("INT2FLOATS\n");
 		common = TYPE_DOUBLE;
 	}
-    else if (left_type != right_type)
+	else if (left_type != right_type)
 	{
 		fail("incompatible binary operands");
 	}
 
 	switch (binary_node->op)
 	{
-		case OP_ADD:
-			if (common == TYPE_STRING)
-			{
-				emit("POPS LF@%%b\nPOPS LF@%%a\nCONCAT LF@%%a LF@%%a LF@%%b\nPUSHS LF@%%a\n");
-				return TYPE_STRING;
-			}
-			emit("ADDS\n");
-			break;
-        case OP_SUB:
-			emit("SUBS\n");
-			break;
-        case OP_MUL:
-			emit("MULS\n");
-			break;
-        case OP_DIV:
-			emit(common == TYPE_INT ? "IDIVS\n" : "DIVS\n");
-			break;
-        case OP_EQUAL: emit("EQS\n");
-			return TYPE_BOOL;
-        case OP_NOTEQUAL: emit("EQS\nNOTS\n");
-			return TYPE_BOOL;
-        case OP_LESSTHAN: emit("LTS\n");
-			return TYPE_BOOL;
-        case OP_GREATERTHAN: emit("GTS\n");
-			return TYPE_BOOL;
-		case OP_LESSOREQUAL:
-		case OP_GREATEROREQUAL:
-			emit("POPS LF@%%b\nPOPS LF@%%a\nPUSHS LF@%%a\nPUSHS LF@%%b\n");
-			emit(binary_node->op == OP_LESSOREQUAL ? "LTS\n" : "GTS\n");
-			emit("PUSHS LF@%%a\nPUSHS LF@%%b\nEQS\nORS\n");
-			return TYPE_BOOL;
-		default:
-			fail("unsupported binary operator");
-			break;
-    }
+	case OP_ADD:
+		if (common == TYPE_STRING)
+		{
+			emit("POPS LF@%%b\nPOPS LF@%%a\nCONCAT LF@%%a LF@%%a LF@%%b\nPUSHS LF@%%a\n");
+			return TYPE_STRING;
+		}
+		emit("ADDS\n");
+		break;
+	case OP_SUB:
+		emit("SUBS\n");
+		break;
+	case OP_MUL:
+		emit("MULS\n");
+		break;
+	case OP_DIV:
+		emit(common == TYPE_INT ? "IDIVS\n" : "DIVS\n");
+		break;
+	case OP_EQUAL:
+		emit("EQS\n");
+		return TYPE_BOOL;
+	case OP_NOTEQUAL:
+		emit("EQS\nNOTS\n");
+		return TYPE_BOOL;
+	case OP_LESSTHAN:
+		emit("LTS\n");
+		return TYPE_BOOL;
+	case OP_GREATERTHAN:
+		emit("GTS\n");
+		return TYPE_BOOL;
+	case OP_LESSOREQUAL:
+	case OP_GREATEROREQUAL:
+		emit("POPS LF@%%b\nPOPS LF@%%a\nPUSHS LF@%%a\nPUSHS LF@%%b\n");
+		emit(binary_node->op == OP_LESSOREQUAL ? "LTS\n" : "GTS\n");
+		emit("PUSHS LF@%%a\nPUSHS LF@%%b\nEQS\nORS\n");
+		return TYPE_BOOL;
+	default:
+		fail("unsupported binary operator");
+		break;
+	}
 
 	if (common == TYPE_INT)
 	{
@@ -534,43 +538,43 @@ static DataType expression(Generator* gen, const AstNode* expr_node)
 
 	switch (expr_node->kind)
 	{
-		case AST_LIT:
-			return literal(expr_node);
-		case AST_ID:
+	case AST_LIT:
+		return literal(expr_node);
+	case AST_ID:
+	{
+		Local var = lookup(gen, expr_node->name);
+		emit("PUSHS LF@v%zu\n", var.id);
+		return var.type;
+	}
+	case AST_FUNC_CALL:
+		return call(gen, expr_node);
+	case AST_BINARY_OP:
+		return binary(gen, expr_node);
+	case AST_UNARY_OP:
+		if (expr_node->op != OP_NEG)
 		{
-			Local var = lookup(gen, expr_node->name);
-			emit("PUSHS LF@v%zu\n", var.id);
-			return var.type;
+			fail("unsupported unary operator");
 		}
-		case AST_FUNC_CALL:
-			return call(gen, expr_node);
-		case AST_BINARY_OP:
-			return binary(gen, expr_node);
-		case AST_UNARY_OP:
-			if (expr_node->op != OP_NEG)
-			{
-				fail("unsupported unary operator");
-			}
 
-			DataType type = expression(gen, expr_node->left);
-			if (type == TYPE_INT)
-			{
-				emit("PUSHS int@-1\nMULS\n");
-				wrap_int(gen);
-			}
-			else if (type == TYPE_DOUBLE)
-			{
-				emit("PUSHS float@-0x1p+0\nMULS\n");
-			}
-			else
-			{
-				fail("invalid unary operand");
-			}
+		DataType type = expression(gen, expr_node->left);
+		if (type == TYPE_INT)
+		{
+			emit("PUSHS int@-1\nMULS\n");
+			wrap_int(gen);
+		}
+		else if (type == TYPE_DOUBLE)
+		{
+			emit("PUSHS float@-0x1p+0\nMULS\n");
+		}
+		else
+		{
+			fail("invalid unary operand");
+		}
 
-			return type;
-		default:
-			fail("unexpected expression");
-			break;
+		return type;
+	default:
+		fail("unexpected expression");
+		break;
 	}
 
 	return TYPE_NONE;
@@ -634,90 +638,90 @@ static void statement(Generator* gen, const AstNode* stmt_node, bool last)
 {
 	switch (stmt_node->kind)
 	{
-		case AST_VAR_DEF:
-		{
-			size_t id = gen->next_var++;
-			DataType actual = expression(gen, stmt_node->value);
-			DataType t = stmt_node->data_type == TYPE_NONE ? actual : stmt_node->data_type;
-			convert(actual, t);
-			emit("POPS LF@v%zu\n", id);
+	case AST_VAR_DEF:
+	{
+		size_t id = gen->next_var++;
+		DataType actual = expression(gen, stmt_node->value);
+		DataType t = stmt_node->data_type == TYPE_NONE ? actual : stmt_node->data_type;
+		convert(actual, t);
+		emit("POPS LF@v%zu\n", id);
 
-			/*
-			 * Vazba proměnné vzniká až po vyhodnocení inicializačního
-			 * výrazu, aby bylo správně zajištěno zastínění proměnných.
-			 */
-			bind(gen, stmt_node->name, id, t);
-			break;
-		}
-		case AST_ASSIGN:
-		{
-			Local var = lookup(gen, stmt_node->name);
-			convert(expression(gen, stmt_node->value), var.type);
-			emit("POPS LF@v%zu\n", var.id);
-			break;
-		}
-		case AST_IF:
-		{
-			size_t id = label(gen);
+		/*
+		 * Vazba proměnné vzniká až po vyhodnocení inicializačního
+		 * výrazu, aby bylo správně zajištěno zastínění proměnných.
+		 */
+		bind(gen, stmt_node->name, id, t);
+		break;
+	}
+	case AST_ASSIGN:
+	{
+		Local var = lookup(gen, stmt_node->name);
+		convert(expression(gen, stmt_node->value), var.type);
+		emit("POPS LF@v%zu\n", var.id);
+		break;
+	}
+	case AST_IF:
+	{
+		size_t id = label(gen);
 
-            if (expression(gen, stmt_node->condition) != TYPE_BOOL)
-			{
-				fail("non-boolean if condition");
-			}
-
-			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_else\n", id);
-			block(gen, stmt_node->body, false);
-			emit("JUMP $L%zu_end\nLABEL $L%zu_else\n", id, id);
-			block(gen, stmt_node->else_body, false);
-			emit("LABEL $L%zu_end\n", id);
-			break;
-		}
-		case AST_WHILE:
+		if (expression(gen, stmt_node->condition) != TYPE_BOOL)
 		{
-			size_t id = label(gen);
-			emit("LABEL $L%zu_loop\n", id);
-
-			if (expression(gen, stmt_node->condition) != TYPE_BOOL)
-			{
-				fail("non-Boolean while condition");
-			}
-
-			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_end\n", id);
-			block(gen, stmt_node->body, false);
-			emit("JUMP $L%zu_loop\nLABEL $L%zu_end\n", id, id);
-			break;
+			fail("non-boolean if condition");
 		}
-		case AST_RETURN:
-			if (stmt_node->value)
-			{
-				finish_return(gen, expression(gen, stmt_node->value));
-			}
-			else
-			{
-				emit("PUSHS nil@nil\n");
-				finish_return(gen, TYPE_UNIT);
-			}
-			return;
-		case AST_FUNC_CALL:
-		case AST_BINARY_OP:
-		case AST_UNARY_OP:
-		case AST_LIT:
-		case AST_ID:
+
+		emit("PUSHS bool@false\nJUMPIFEQS $L%zu_else\n", id);
+		block(gen, stmt_node->body, false);
+		emit("JUMP $L%zu_end\nLABEL $L%zu_else\n", id, id);
+		block(gen, stmt_node->else_body, false);
+		emit("LABEL $L%zu_end\n", id);
+		break;
+	}
+	case AST_WHILE:
+	{
+		size_t id = label(gen);
+		emit("LABEL $L%zu_loop\n", id);
+
+		if (expression(gen, stmt_node->condition) != TYPE_BOOL)
 		{
-			DataType type = expression(gen, stmt_node);
-			if (last)
-			{
-				finish_return(gen, type);
-			}
-			else
-			{
-				emit("POPS LF@%%a\n");
-			}
-			return;
+			fail("non-Boolean while condition");
 		}
-		default:
-			fail("unexpected statement");
-			break;
+
+		emit("PUSHS bool@false\nJUMPIFEQS $L%zu_end\n", id);
+		block(gen, stmt_node->body, false);
+		emit("JUMP $L%zu_loop\nLABEL $L%zu_end\n", id, id);
+		break;
+	}
+	case AST_RETURN:
+		if (stmt_node->value)
+		{
+			finish_return(gen, expression(gen, stmt_node->value));
+		}
+		else
+		{
+			emit("PUSHS nil@nil\n");
+			finish_return(gen, TYPE_UNIT);
+		}
+		return;
+	case AST_FUNC_CALL:
+	case AST_BINARY_OP:
+	case AST_UNARY_OP:
+	case AST_LIT:
+	case AST_ID:
+	{
+		DataType type = expression(gen, stmt_node);
+		if (last)
+		{
+			finish_return(gen, type);
+		}
+		else
+		{
+			emit("POPS LF@%%a\n");
+		}
+		return;
+	}
+	default:
+		fail("unexpected statement");
+		break;
 	}
 
 	/*
@@ -853,4 +857,3 @@ void codegen_generate(const AstNode* program)
 		fail("cannot flush generated code");
 	}
 }
-

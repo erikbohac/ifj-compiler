@@ -163,3 +163,35 @@ static void emit_string(const char* str)
 	}
 }
 
+/*
+ * Vloží hodnotu literálu na datový zásobník podle jeho datového typu.
+ * Každý výraz zanechá na zásobníku právě jednu hodnotu, včetně typu Unit.
+ */
+static DataType literal(const AstNode* node)
+{
+	switch (node->data_type)
+	{
+		case TYPE_INT:
+			emit("PUSHS int@%lld\n", node->int_val);
+			break;
+        case TYPE_DOUBLE:
+			emit("PUSHS float@%a\n", node->double_val);
+			break;
+        case TYPE_STRING:
+			emit("PUSHS ");
+			emit_string(node->str_val);
+			emit("\n");
+			break;
+        case TYPE_BOOL:
+			emit("PUSHS bool@%s\n", node->int_val ? "true" : "false");
+			break;
+        case TYPE_UNIT:
+			emit("PUSHS nil@nil\n");
+			break;
+		default:
+			fail("unknown literal type");
+			break;
+	}
+
+	return node->data_type;
+}

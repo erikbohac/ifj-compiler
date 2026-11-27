@@ -576,3 +576,28 @@ static DataType expression(Generator* gen, const AstNode* nodes)
 	return TYPE_NONE;
 }
 
+/*
+ * Deklaruje všechny lokální proměnné na začátku funkce ve stejném
+ * pořadí, v jakém jsou uzly procházeny do hloubky při generování kódu.
+ * Tím zabraňuje opakovanému provádění instrukce DEFVAR uvnitř cyklů.
+ */
+static void declare_locals(const AstNode* nodes, size_t* id)
+{
+	for (; nodes; nodes = nodes->next)
+	{
+		if (nodes->kind == AST_VAR_DEF)
+		{
+			emit("DEFVAR LF@v%zu\n", (*id)++);
+		}
+		else if (nodes->kind == AST_IF || nodes->kind == AST_WHILE)
+		{
+			declare_locals(nodes->body, id);
+
+			if (nodes->kind == AST_IF)
+			{
+				declare_locals(nodes->else_body, id);
+			}
+		}
+	}
+}
+

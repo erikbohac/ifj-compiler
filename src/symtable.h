@@ -8,8 +8,8 @@
 #ifndef SYMTABLE_H
 #define SYMTABLE_H
 
-#include "bst.h"
 #include "ast.h"
+#include "bst.h"
 
 #include <stdbool.h>
 #include <stdlib.h>

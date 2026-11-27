@@ -7,8 +7,11 @@
  */
 
 #include "ast.h"
+#include "codegen.h"
 #include "lexer.h"
 #include "parser.h"
+#include "semantic.h"
+#include "symtable.h"
 
 #include <stdio.h>
 
@@ -41,12 +44,24 @@ int main(void)
 	//    pamate (99) parser ukonci program sam s prislusnym kodom.
 	AstNode* program = parse_program();
 
-	// 3. Semanticka analyza (TODO): tu sa zavola kontrola stromu
-	//    a pri chybe sa vrati jej navratovy kod (3 az 7 alebo 10).
+	// 3. Semanticka analyza: kontrola typov a definicii nad stromom.
+	//    Pri chybe vratime jej navratovy kod (3 az 7 alebo 10).
+	AVLNode* symtable;
+	table_inicialization(&symtable);
+	err = semantic_analyze(program, &symtable);
+	if (err != 0)
+	{
+		table_free(&symtable);
+		ast_free(program);
+		lexer_free();
+		return err;
+	}
 
-	// 4. Generovanie IFJcode26 na stdout (TODO): tu sa zavola generator.
+	// 4. Generovanie IFJcode26 na stdout
+	codegen_generate(program);
 
 	// 5. Uvolnime vsetku pamat
+	table_free(&symtable);
 	ast_free(program);
 	lexer_free();
 	return 0;

@@ -623,3 +623,129 @@ static void finish_return(Generator* gen, DataType actual)
 	emit("JUMP $ret_%s\n", gen->function->name);
 }
 
+static void block(Generator* gen, const AstNode* nodes, bool function_body);
+
+/*
+ * Generuje kód jednotlivých příkazů podle druhu uzlu AST.
+ * Pouze poslední výraz těla funkce tvoří implicitní návratovou
+ * hodnotu. Výsledky výrazů ve vnořených blocích jsou zahozeny.
+ */
+static void statement(Generator* gen, const AstNode* nodes, bool last)
+{
+	switch (nodes->kind)
+	{
+		case AST_VAR_DEF:
+		{
+			size_t id = gen->next_var++;
+			DataType actual = expression(gen, nodes->value);
+			DataType t = nodes->data_type == TYPE_NONE ? actual : nodes->data_type;
+			convert(actual, t);
+			emit("POPS LF@v%zu\n", id);
+
+            /*
+             * Vazba proměnné vzniká až po vyhodnocení inicializačního
+             * výrazu, aby bylo správně zajištěno zastínění proměnných.
+             */
+			bind(gen, nodes->name, id, t);
+			break;
+		}
+		case AST_ASSIGN:
+		{
+			Local var = lookup(gen, nodes->name);
+			convert(expression(gen, nodes->value), var.type);
+			emit("POPS LF@v%zu\n", var.id);
+			break;
+		}
+		case AST_IF:
+		{
+			size_t id = label(gen);
+
+            if (expression(gen, nodes->condition) != TYPE_BOOL)
+			{
+				fail("non-Boolean if condition");
+			}
+
+			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_else\n", id);
+			block(gen, nodes->body, false);
+			emit("JUMP $L%zu_end\nLABEL $L%zu_else\n", id, id);
+			block(gen, nodes->else_body, false);
+			emit("LABEL $L%zu_end\n", id);
+			break;
+		}
+		case AST_WHILE:
+		{
+			size_t id = label(gen);
+			emit("LABEL $L%zu_loop\n", id);
+
+			if (expression(gen, nodes->condition) != TYPE_BOOL)
+			{
+				fail("non-Boolean while condition");
+			}
+
+			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_end\n", id);
+			block(gen, nodes->body, false);
+			emit("JUMP $L%zu_loop\nLABEL $L%zu_end\n", id, id);
+			break;
+		}
+		case AST_RETURN:
+			if (nodes->value)
+			{
+				finish_return(gen, expression(gen, nodes->value));
+			}
+			else
+			{
+				emit("PUSHS nil@nil\n");
+				finish_return(gen, TYPE_UNIT);
+			}
+			return;
+		case AST_FUNC_CALL:
+		case AST_BINARY_OP:
+		case AST_UNARY_OP:
+		case AST_LIT:
+		case AST_ID:
+		{
+			DataType type = expression(gen, nodes);
+			if (last)
+			{
+				finish_return(gen, type);
+			}
+			else
+			{
+				emit("POPS LF@%%a\n");
+			}
+			return;
+		}
+		default:
+			fail("unexpected statement node");
+			break;
+	}
+
+	if (last && gen->function->data_type == TYPE_UNIT)
+	{
+		emit("PUSHS nil@nil\nJUMP $ret_%s\n", gen->function->name);
+	}
+
+	/*
+	 * Pokud je posledním příkazem funkce s návratovým typem jiným
+	 * než Unit podmínka if, musí všechny její možné větve obsahovat
+	 * explicitní návrat. Není tedy potřeba vytvářet návratovou hodnotu.
+	 */
+}
+
+/*
+ * Generuje kód zřetězeného seznamu příkazů s vlastním rozsahem
+ * platnosti. Po opuštění bloku obnoví původní počet vazeb, čímž
+ * odstraní vazby lokálních proměnných deklarovaných uvnitř bloku.
+ */
+static void block(Generator* gen, const AstNode* nodes, bool function_body)
+{
+	size_t saved = gen->count;
+
+	for (; nodes; nodes = nodes->next)
+	{
+		statement(gen, nodes, function_body && !nodes->next);
+	}
+
+	gen->count = saved;
+}
+

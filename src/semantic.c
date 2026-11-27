@@ -734,6 +734,8 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 			fn_data->type = body_type;
 			node->data_type = body_type;
 		}
+
+		cleanup_locals(symtable, &fn_locals);
 		break;
 	}
 

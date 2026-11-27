@@ -1,9 +1,9 @@
 /**
- * Project: IFJ26
- * @file semantic.c
- * @brief lbup blup
+ * Implementace překladače imperativního jazyka IFJ26
+ * @file	semantic.c
+ * @brief	text
  *
- * @author xsmekav00, Veronika Smékalová
+ * @author	Veronika Smékalová (xsmekav00)
  */
 
 #include "semantic.h"

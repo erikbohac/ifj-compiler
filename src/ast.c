@@ -10,6 +10,7 @@
 
 // Vytvori novy uzel, vsechna pole nastavi na 0 / NULL.
 // Vraci NULL, kdyz se nepovede alokace.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 AstNode* ast_new_node(AstKind kind, int line)
 {
 	AstNode* node = calloc(1, sizeof(AstNode));

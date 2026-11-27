@@ -64,9 +64,9 @@ static const Action table[S_COUNT][S_COUNT] = {
 // Polozka na zasobniku
 typedef enum
 {
-	ITEM_TERM,	  // terminal (operator, zavorka, id, $)
-	ITEM_NONTERM, // E (uz zpracovany podvyraz)
-	ITEM_MARK,	  // znacka < (zacatek handle)
+	ITEM_TERM,	  // terminal operator, zavorka, id, $
+	ITEM_NONTERM, // E uz zpracovany podvyraz
+	ITEM_MARK,	  // znacka < zacatek handle
 } ItemKind;
 
 typedef struct
@@ -97,7 +97,7 @@ static void push(ItemKind kind, Symbol sym, OpType op, AstNode* node)
 	stack[top].node = node;
 }
 
-// Vrati index nejvyssiho terminalu na zasobniku.
+// Vrati index nejvyssiho terminalu na zasobnik
 static int top_terminal(void)
 {
 	int i = top;
@@ -120,7 +120,7 @@ static void insert_mark(int index)
 	stack[index + 1].node = NULL;
 }
 
-// Vytvori uzel pro identifikator nebo literal z aktualniho tokenu.
+// Vytvori uzel pro identifikator nebo literal z aktualniho tokenu
 static AstNode* make_term(void)
 {
 	AstNode* node = new_node(AST_LIT);
@@ -151,7 +151,7 @@ static AstNode* make_term(void)
 	return node;
 }
 
-// Urci symbol tabulky pro aktualni token.
+// Urci symbol tabulky pro aktualni token
 // prev_operand = true, kdyz pred tokenem byl operand (id nebo ')').
 static Symbol get_symbol(bool prev_operand, int depth, OpType* op)
 {
@@ -212,7 +212,7 @@ static Symbol get_symbol(bool prev_operand, int depth, OpType* op)
 		return S_LPAR;
 	}
 	case TOK_RPAREN:
-		// ')' bez otevrene '(' uz do vyrazu nepatri (napr. konec argumentu)
+		// ')' bez otevrene '(' uz do vyrazu nepatri
 		return depth > 0 ? S_RPAR : S_END;
 	case TOK_ID:
 	case TOK_LIT_INT:
@@ -240,7 +240,6 @@ static void reduce(void)
 	int count = top - mark; // pocet polozek nad znackou
 	Item* h = &stack[mark + 1];
 	AstNode* result = NULL;
-
 	if (count == 1 && h[0].kind == ITEM_TERM && h[0].sym == S_ID)
 	{
 		// E -> id
@@ -273,7 +272,6 @@ static void reduce(void)
 	{
 		syntax_error("chybny vyraz");
 	}
-
 	top = mark - 1; // odstranime handle i se znackou
 	push(ITEM_NONTERM, S_END, OP_NONE, result);
 }
@@ -283,9 +281,8 @@ AstNode* parse_expression(void)
 	top = -1;
 	unit_pending = false;
 	push(ITEM_TERM, S_END, OP_NONE, NULL); // $ na dne zasobniku
-
-	bool prev_operand = false; // byl posledni symbol operand?
-	int depth = 0;			   // pocet otevrenych zavorek
+	bool prev_operand = false;			   // byl posledni symbol operand?
+	int depth = 0;						   // pocet otevrenych zavorek
 
 	while (true)
 	{
@@ -293,7 +290,6 @@ AstNode* parse_expression(void)
 		Symbol b = get_symbol(prev_operand, depth, &op);
 		int a_index = top_terminal();
 		Symbol a = stack[a_index].sym;
-
 		// hotovo: na zasobniku je $ E a na vstupu konec vyrazu
 		if (a == S_END && b == S_END)
 		{
@@ -305,7 +301,6 @@ AstNode* parse_expression(void)
 		}
 
 		Action action = table[a][b];
-
 		if (action == REDUCE)
 		{
 			reduce();

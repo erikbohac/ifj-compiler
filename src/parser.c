@@ -47,7 +47,7 @@ AstNode* new_node(AstKind kind)
 	return node;
 }
 
-// Zkontroluje typ aktualniho tokenu a posune se dal.
+// Zkontroluje typ aktualniho tokenu a dal
 static void expect(TokenType type, const char* msg)
 {
 	if (current.type != type)
@@ -57,7 +57,7 @@ static void expect(TokenType type, const char* msg)
 	next_token();
 }
 
-// Ocekava identifikator, vrati jeho retezec a posune se dal.
+// Ocekava identifikator, vrati jeho retezec
 static char* expect_id(const char* msg)
 {
 	if (current.type != TOK_ID)
@@ -69,7 +69,7 @@ static char* expect_id(const char* msg)
 	return id;
 }
 
-// Preskoci prazdne radky.
+// Preskoci prazdne radky
 static void skip_newlines(void)
 {
 	while (current.type == TOK_NEWLINE)
@@ -119,6 +119,61 @@ static DataType parse_type(void)
 	return type;
 }
 
+// <term> -> id | int | double | string | () | - int | - double
+// Argument volani je v zakladnim zadani jen term (bez FUNEXP).
+static AstNode* parse_term(void)
+{
+	AstNode* node = new_node(AST_LIT);
+	switch (current.type)
+	{
+	case TOK_ID:
+		node->kind = AST_ID;
+		node->name = current.value.str_val;
+		break;
+	case TOK_LIT_INT:
+		node->data_type = TYPE_INT;
+		node->int_val = current.value.int_val;
+		break;
+	case TOK_LIT_DOUBLE:
+		node->data_type = TYPE_DOUBLE;
+		node->double_val = current.value.double_val;
+		break;
+	case TOK_LIT_STRING:
+		node->data_type = TYPE_STRING;
+		node->str_val = current.value.str_val;
+		break;
+	case TOK_LPAREN:
+		next_token();
+		if (current.type != TOK_RPAREN)
+		{
+			syntax_error("argument funkce muze byt jen term");
+		}
+		node->data_type = TYPE_UNIT;
+		break;
+	case TOK_MINUS:
+		next_token();
+		if (current.type == TOK_LIT_INT)
+		{
+			node->data_type = TYPE_INT;
+			node->int_val = -current.value.int_val;
+		}
+		else if (current.type == TOK_LIT_DOUBLE)
+		{
+			node->data_type = TYPE_DOUBLE;
+			node->double_val = -current.value.double_val;
+		}
+		else
+		{
+			syntax_error("za '-' ocekavano cislo");
+		}
+		break;
+	default:
+		syntax_error("argument funkce muze byt jen term");
+	}
+	next_token();
+	return node;
+}
+
 // Rozhodne, zda nasleduje volani funkce nebo vyraz
 static AstNode* parse_expr_or_call(void)
 {
@@ -137,7 +192,7 @@ static AstNode* parse_expr_or_call(void)
 			{
 				while (true)
 				{
-					AstNode* arg = parse_expression();
+					AstNode* arg = parse_term();
 					append_node(&args_head, &args_tail, arg);
 
 					if (current.type == TOK_COMMA)
@@ -183,7 +238,6 @@ static AstNode* parse_params(void)
 		expect(TOK_COLON, "ocekavana ':' za jmenem parametru");
 		param->data_type = parse_type();
 		append_node(&head, &tail, param);
-
 		if (current.type == TOK_COMMA)
 		{
 			next_token();
@@ -200,7 +254,7 @@ static AstNode* parse_params(void)
 	return head;
 }
 
-// <var_def> -> (val | var) ID [: <typ>] = <vyraz_nebo_volani>
+// <var_def> -> (val|var) ID [:<typ>]=<vyraz_nebo_volani>
 static AstNode* parse_var_def(bool is_mutable)
 {
 	AstNode* node = new_node(AST_VAR_DEF);
@@ -322,7 +376,6 @@ static AstNode* parse_statement(void)
 			return parse_expr_or_call();
 		}
 	}
-
 	return parse_expression();
 }
 
@@ -331,7 +384,6 @@ static AstNode* parse_block(void)
 {
 	expect(TOK_INDENT, "ocekavano odsazeni noveho bloku");
 	skip_newlines();
-
 	if (current.type == TOK_DEDENT)
 	{
 		syntax_error("blok nesmi byt prazdny");
@@ -343,7 +395,6 @@ static AstNode* parse_block(void)
 	{
 		AstNode* stmt = parse_statement();
 		append_node(&head, &tail, stmt);
-
 		if (current.type == TOK_SEMICOLON)
 		{
 			next_token();
@@ -362,19 +413,18 @@ static AstNode* parse_block(void)
 		}
 		else if (stmt->kind == AST_IF || stmt->kind == AST_WHILE)
 		{
-			// if a while konci vlastnim blokem (DEDENT), oddelovac neni potreba
+			// if a while konci vlastnim blokem DEDENT, oddelovac neni potreba
 		}
 		else
 		{
 			syntax_error("ocekavan konec radku nebo ';' za prikazem");
 		}
 	}
-
 	expect(TOK_DEDENT, "ocekavano ukonceni odsazeneho bloku");
 	return head;
 }
 
-// <funkce> -> [@main] def ID ( <param_list> ) [: <typ>] = (<vyraz_nebo_volani> | NEWLINE <blok>)
+// <funkce> -> [@main] def ID (<param_list>) [: <typ>] = (<vyraz_nebo_volani> | NEWLINE <blok>)
 static AstNode* parse_function(void)
 {
 	bool is_main = false;
@@ -387,7 +437,6 @@ static AstNode* parse_function(void)
 			skip_newlines();
 		}
 	}
-
 	expect(TOK_KW_DEF, "ocekavana definice funkce 'def'");
 
 	AstNode* func = new_node(AST_FUNC_DEF);
@@ -397,7 +446,6 @@ static AstNode* parse_function(void)
 	expect(TOK_LPAREN, "ocekavana '(' v hlavicce funkce");
 	func->parameters = parse_params();
 	expect(TOK_RPAREN, "ocekavana ')' v hlavicce funkce");
-
 	if (current.type == TOK_COLON)
 	{
 		next_token();
@@ -407,7 +455,6 @@ static AstNode* parse_function(void)
 	{
 		func->data_type = TYPE_NONE;
 	}
-
 	expect(TOK_ASSIGN, "ocekavano '=' v definici funkce");
 
 	if (current.type == TOK_NEWLINE)
@@ -427,7 +474,6 @@ static AstNode* parse_function(void)
 			syntax_error("ocekavan novy radek za jednoradkovou funkci");
 		}
 	}
-
 	return func;
 }
 
@@ -435,7 +481,6 @@ static AstNode* parse_function(void)
 static void parse_prolog(void)
 {
 	expect(TOK_KW_IMPORT, "chybi prolog");
-
 	if (current.type != TOK_ID || strcmp(current.value.str_val, "ifj26") != 0)
 	{
 		syntax_error("ocekavano ifj26");
@@ -453,14 +498,27 @@ AstNode* parse_program(void)
 	next_token();
 	skip_newlines();
 
+	// Pred prologem smi byt bile znaky, lexer z nich udela INDENT
+	bool indented_prolog = false;
+	if (current.type == TOK_INDENT)
+	{
+		indented_prolog = true;
+		next_token();
+	}
+
 	AstNode* program = new_node(AST_PROGRAM);
 	parse_prolog();
-
 	if (current.type != TOK_NEWLINE && current.type != TOK_EOF)
 	{
 		syntax_error("ocekavan novy radek za prologem");
 	}
 	skip_newlines();
+
+	if (indented_prolog)
+	{
+		expect(TOK_DEDENT, "funkce musi zacinat na zacatku radku");
+		skip_newlines();
+	}
 
 	AstNode *funcs_head = NULL, *funcs_tail = NULL;
 	while (current.type == TOK_KW_DEF || current.type == TOK_AT_MAIN)
@@ -476,6 +534,5 @@ AstNode* parse_program(void)
 	{
 		syntax_error("ocekavan konec souboru nebo definice funkce");
 	}
-
 	return program;
 }

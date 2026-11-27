@@ -642,10 +642,10 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 			convert(actual, t);
 			emit("POPS LF@v%zu\n", id);
 
-            /*
-             * Vazba proměnné vzniká až po vyhodnocení inicializačního
-             * výrazu, aby bylo správně zajištěno zastínění proměnných.
-             */
+			/*
+			 * Vazba proměnné vzniká až po vyhodnocení inicializačního
+			 * výrazu, aby bylo správně zajištěno zastínění proměnných.
+			 */
 			bind(gen, nodes->name, id, t);
 			break;
 		}
@@ -720,16 +720,15 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 			break;
 	}
 
-	if (last && gen->function->data_type == TYPE_UNIT)
-	{
-		emit("PUSHS nil@nil\nJUMP $ret_%s\n", gen->function->name);
-	}
-
 	/*
 	 * Pokud je posledním příkazem funkce s návratovým typem jiným
 	 * než Unit podmínka if, musí všechny její možné větve obsahovat
 	 * explicitní návrat. Není tedy potřeba vytvářet návratovou hodnotu.
 	 */
+	if (last && gen->function->data_type == TYPE_UNIT)
+	{
+		emit("PUSHS nil@nil\nJUMP $ret_%s\n", gen->function->name);
+	}
 }
 
 /*
@@ -747,5 +746,63 @@ static void block(Generator* gen, const AstNode* nodes, bool function_body)
 	}
 
 	gen->count = saved;
+}
+
+/*
+ * Generuje kód uživatelsky definované funkce. Pro každé volání
+ * vytváří nový lokální rámec, čímž umožňuje i rekurzivní volání.
+ * Deklaruje parametry a lokální proměnné, načte argumenty
+ * ze zásobníku a vygeneruje tělo funkce.
+ */
+static void function(Generator* gen, const AstNode* func)
+{
+	if (func->data_type == TYPE_NONE)
+	{
+		fail("invalid function return type");
+	}
+
+	gen->function = func;
+	gen->count = 0;
+	gen->next_var = 0;
+
+	emit("LABEL $fn_%s\nCREATEFRAME\nPUSHFRAME\n", func->name);
+	emit("DEFVAR LF@%%a\nDEFVAR LF@%%b\nDEFVAR LF@%%c\nDEFVAR LF@%%len\nDEFVAR LF@%%flag\nDEFVAR LF@%%ch\nDEFVAR LF@%%result\n");
+
+	for (const AstNode* params = func->parameters; params; params = params->next)
+	{
+		size_t id = gen->next_var++;
+		emit("DEFVAR LF@v%zu\n", id);
+		bind(gen, params->name, id, params->data_type);
+	}
+
+	for (size_t i = gen->next_var; i > 0; --i)
+	{
+		emit("POPS LF@v%zu\n", i - 1);
+	}
+
+	size_t end_id = gen->next_var;
+	declare_locals(func->body, &end_id);
+	block(gen, func->body, true);
+
+	if (gen->next_var != end_id)
+	{
+		fail("inconsistent variable declaration traversal");
+	}
+
+	/*
+	 * U správně vytvořené funkce s návratovým typem jiným než Unit
+	 * nelze dosáhnout konce těla bez vrácení návratové hodnoty.
+	 */
+	if (func->data_type == TYPE_UNIT)
+	{
+		emit("PUSHS nil@nil\n");
+	}
+	else
+	{
+		emit("EXIT int@40\n");
+	}
+
+	emit("LABEL $ret_%s\nPOPFRAME\nRETURN\n", func->name);
+	gen->count = 0;
 }
 

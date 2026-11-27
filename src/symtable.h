@@ -9,19 +9,10 @@
 #define SYMTABLE_H
 
 #include "bst.h"
+#include "ast.h"
 
 #include <stdbool.h>
 #include <stdlib.h>
-
-typedef enum
-{
-	TYPE_NONE,
-	TYPE_INT,
-	TYPE_STRING,
-	TYPE_DOUBLE,
-	TYPE_BOOL,
-	TYPE_UNIT
-} DataType;
 
 typedef enum
 {

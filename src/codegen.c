@@ -806,3 +806,51 @@ static void function(Generator* gen, const AstNode* func)
 	gen->count = 0;
 }
 
+/*
+ * Generuje výsledný kód celého programu ve formátu IFJcode26.
+ * Vyhledá a ověří vstupní funkci main, vygeneruje její volání
+ * a ukončení programu, aby provádění nepokračovalo do definic
+ * ostatních funkcí. Následně vygeneruje všechny definované funkce
+ * a uvolní pomocné prostředky generátoru.
+ */
+void codegen_generate(const AstNode* program)
+{
+	if (!program || program->kind != AST_PROGRAM)
+	{
+		fail("expected program AST");
+	}
+
+	Generator gen = {0};
+	gen.program = program;
+	const AstNode* main_func = NULL;
+
+	for (const AstNode* func = program->body; func; func = func->next)
+	{
+		if (func->is_main)
+		{
+			if (main_func)
+				fail("multiple entry points");
+			main_func = func;
+		}
+	}
+
+	if (!main_func || main_func->parameters || main_func->data_type != TYPE_UNIT)
+	{
+		fail("invalid entry point");
+	}
+
+	emit(".IFJcode26\nDEFVAR GF@%%discard\nCALL $fn_%s\nPOPS GF@%%discard\nEXIT int@0\n", main_func->name);
+
+	for (const AstNode* func = program->body; func; func = func->next)
+	{
+		function(&gen, func);
+	}
+
+	free(gen.locals);
+
+	if (fflush(stdout) == EOF)
+	{
+		fail("cannot flush generated code");
+	}
+}
+

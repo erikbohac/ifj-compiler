@@ -1,0 +1,1013 @@
+/*
+ * Projekt:	Implementace prekladace imperativniho jazyka IFJ26
+ * Soubor:	codegen.c
+ * Popis:	Generátor cílového kódu IFJcode26
+ *
+ * Autor:	Erik Boháč (xbohace00)
+ * AI: ChatGPT GPT-6.2 (původní návrh generátoru a úprava chyb).
+ * Původní prompt: "Well, someone else is implementic semantic analysis so let's ignore it for now and create the final code generation"
+ * Prompt: "Also make it so it does not fail inside but return error code 99 to the caller"
+ * Kontext: "However it looks like this now" (dodaná verze codegen.c).
+ */
+
+#include "codegen.h"
+
+#include <stdarg.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+/*
+ * Jeden záznam pro každou lokální proměnnou v aktuálním rozsahu platnosti.
+ * Pole slouží jako zásobník lexikálních vazeb.
+ */
+typedef struct
+{
+	const char* name;
+	size_t id;
+	DataType type;
+} Local;
+
+/*
+ * Kontext generátoru kódu obsahující AST programu, aktuální funkci,
+ * zásobník lokálních proměnných a čítače pro vytváření unikátních
+ * identifikátorů proměnných a návěští.
+ */
+typedef struct
+{
+	const AstNode* program;
+	const AstNode* function;
+	Local* locals;
+	size_t count;
+	size_t capacity;
+	size_t next_var;
+	size_t next_label;
+	int error;
+} Generator;
+
+/*
+ * Zaznamená první interní chybu bez ukončení procesu.
+ */
+static void fail(Generator* gen, const char* message)
+{
+	if (!gen->error)
+	{
+		fprintf(stderr, "codegen: %s\n", message);
+		gen->error = 99;
+	}
+}
+
+/*
+ * Vypíše formátovanou instrukci IFJcode26 nebo několik řádků kódu.
+ */
+static void emit(Generator* gen, const char* format, ...)
+{
+	if (gen->error)
+	{
+		return;
+	}
+
+	va_list args;
+	va_start(args, format);
+	int result = vprintf(format, args);
+	va_end(args);
+
+	if (result < 0)
+	{
+		fail(gen, "problem writing generated code");
+	}
+}
+
+/*
+ * Vrátí globálně unikátní číslo interního návěští.
+ */
+static size_t label(Generator* gen)
+{
+	return gen->next_label++;
+}
+
+/*
+ * Vyhledá aktuálně viditelnou deklaraci proměnné, počínaje
+ * nejvnitřnějším rozsahem platnosti.
+ */
+static Local lookup(Generator* gen, const char* name)
+{
+	if (!name)
+	{
+		fail(gen, "missing local name");
+		return (Local){0};
+	}
+
+	for (size_t i = gen->count; i > 0; --i)
+	{
+		if (strcmp(gen->locals[i - 1].name, name) == 0)
+		{
+			return gen->locals[i - 1];
+		}
+	}
+
+	fail(gen, "unresolved local variable");
+	return (Local){0};
+}
+
+/*
+ * Vyhledá uživatelsky definovanou funkci podle názvu.
+ * Podporuje také volání funkcí definovaných později v programu.
+ */
+static const AstNode* find_function(const Generator* gen, const char* name)
+{
+	for (const AstNode* find = gen->program->body; find; find = find->next)
+	{
+		if (strcmp(find->name, name) == 0)
+		{
+			return find;
+		}
+	}
+
+	return NULL;
+}
+
+/*
+ * Přidá vazbu lokální proměnné do aktuálního rozsahu platnosti.
+ * Při opuštění bloku se vazba odstraní obnovením původní hodnoty count.
+ * V případě potřeby zvětší kapacitu zásobníku lokálních proměnných.
+ */
+static void bind(Generator* gen, const char* name, size_t id, DataType type)
+{
+	if (gen->error)
+	{
+		return;
+	}
+	if (!name || type == TYPE_NONE)
+	{
+		fail(gen, "unresolved local declaration");
+		return;
+	}
+
+	if (gen->count == gen->capacity)
+	{
+		if (gen->capacity > SIZE_MAX / 2 / sizeof(Local))
+		{
+			fail(gen, "local binding capacity overflow");
+			return;
+		}
+		size_t capacity = gen->capacity ? gen->capacity * 2 : 16;
+		Local* new_locals = realloc(gen->locals, capacity * sizeof(*new_locals));
+
+		if (!new_locals)
+		{
+			fail(gen, "out of memory");
+			return;
+		}
+
+		gen->locals = new_locals;
+		gen->capacity = capacity;
+	}
+
+	gen->locals[gen->count++] = (Local){name, id, type};
+}
+
+/*
+ * Vypíše řetězcový operand a nahradí rezervované a netisknutelné
+ * znaky jejich číselnými escape sekvencemi.
+ */
+static void emit_string(Generator* gen, const char* str)
+{
+	if (!str)
+	{
+		fail(gen, "missing string literal");
+		return;
+	}
+
+	emit(gen, "string@");
+
+	for (const unsigned char* byte = (const unsigned char*)str; *byte && !gen->error; ++byte)
+	{
+		if (*byte <= 32 || *byte == '#' || *byte == '\\' || *byte >= 127)
+		{
+			emit(gen, "\\%03u", (unsigned)*byte);
+		}
+		else
+		{
+			emit(gen, "%c", *byte);
+		}
+	}
+}
+
+/*
+ * Vloží hodnotu literálu na datový zásobník podle jeho datového typu.
+ * Každý výraz zanechá na zásobníku právě jednu hodnotu, včetně typu Unit.
+ */
+static DataType literal(Generator* gen, const AstNode* literal_node)
+{
+	switch (literal_node->data_type)
+	{
+	case TYPE_INT:
+		emit(gen, "PUSHS int@%lld\n", literal_node->int_val);
+		break;
+	case TYPE_DOUBLE:
+		emit(gen, "PUSHS float@%a\n", literal_node->double_val);
+		break;
+	case TYPE_STRING:
+		emit(gen, "PUSHS ");
+		emit_string(gen, literal_node->str_val);
+		emit(gen, "\n");
+		break;
+	case TYPE_BOOL:
+		emit(gen, "PUSHS bool@%s\n", literal_node->int_val ? "true" : "false");
+		break;
+	case TYPE_UNIT:
+		emit(gen, "PUSHS nil@nil\n");
+		break;
+	default:
+		fail(gen, "unknown literal type");
+		return TYPE_NONE;
+	}
+
+	return gen->error ? TYPE_NONE : literal_node->data_type;
+}
+
+/*
+ * Provede jedinou povolenou implicitní číselnou konverzi
+ * hodnoty na datovém zásobníku, a to z typu Int na Double.
+ */
+static void convert(Generator* gen, DataType from, DataType to)
+{
+	if (gen->error)
+	{
+		return;
+	}
+	if (from == to)
+	{
+		return;
+	}
+
+	if (from == TYPE_INT && to == TYPE_DOUBLE)
+	{
+		emit(gen, "INT2FLOATS\n");
+	}
+	else
+	{
+		fail(gen, "incompatible data types");
+	}
+}
+
+/*
+ * Normalizuje celočíselný výsledek na zásobníku do rozsahu
+ * 32bitového celého čísla se znaménkem podle pravidel jazyka Scala.
+ * Výsledek sčítání, odčítání, násobení a dělení dvou hodnot typu Int
+ * se před normalizací vejde do 64bitového celého čísla se znaménkem
+ * cílového jazyka.
+ */
+static void wrap_int(Generator* gen)
+{
+	size_t id = label(gen);
+	emit(gen, "POPS LF@%%a\n");
+	emit(gen, "IDIV LF@%%b LF@%%a int@4294967296\n");
+	emit(gen, "MUL LF@%%b LF@%%b int@4294967296\n");
+	emit(gen, "SUB LF@%%a LF@%%a LF@%%b\n");
+	emit(gen, "GT LF@%%flag LF@%%a int@2147483647\n");
+	emit(gen, "JUMPIFEQ $L%zu_low LF@%%flag bool@false\n", id);
+	emit(gen, "SUB LF@%%a LF@%%a int@4294967296\n");
+	emit(gen, "LABEL $L%zu_low\n", id);
+	emit(gen, "LT LF@%%flag LF@%%a int@-2147483648\n");
+	emit(gen, "JUMPIFEQ $L%zu_done LF@%%flag bool@false\n", id);
+	emit(gen, "ADD LF@%%a LF@%%a int@4294967296\n");
+	emit(gen, "LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
+}
+
+static DataType expression(Generator* gen, const AstNode* expr_node);
+
+/*
+ * Vyhodnotí stanovený počet argumentů vestavěné funkce v pořadí,
+ * ve kterém jsou uvedeny ve zdrojovém kódu. V případě potřeby
+ * provede implicitní konverzi na očekávaný datový typ.
+ */
+static void builtin_args(Generator* gen, const AstNode* args, size_t count, const DataType* expected, DataType* actual)
+{
+	for (size_t i = 0; i < count; ++i)
+	{
+		if (!args)
+		{
+			fail(gen, "missing builtin argument");
+			return;
+		}
+
+		DataType type = expression(gen, args);
+		if (gen->error)
+		{
+			return;
+		}
+		if (expected && expected[i] != TYPE_NONE)
+		{
+			convert(gen, type, expected[i]);
+			if (gen->error)
+			{
+				return;
+			}
+			type = expected[i];
+		}
+		if (actual)
+		{
+			actual[i] = type;
+		}
+		args = args->next;
+	}
+
+	if (args)
+	{
+		fail(gen, "too many builtin arguments");
+	}
+}
+
+/*
+ * Generuje instrukce vestavěných funkcí přímo v místě jejich volání.
+ * Dočasné lokální proměnné se používají až po vyhodnocení argumentů,
+ * aby vnořená volání funkcí nemohla přepsat hodnoty operandů.
+ */
+static DataType builtin(Generator* gen, const AstNode* call_node)
+{
+	const char* name = call_node->name;
+	const AstNode* args = call_node->arguments;
+
+	if (!strcmp(name, "print") || !strcmp(name, "toStr"))
+	{
+		DataType type;
+		builtin_args(gen, args, 1, NULL, &type);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+
+		if (!strcmp(name, "print"))
+		{
+			emit(gen, "POPS LF@%%a\n");
+			emit(gen, type == TYPE_UNIT ? "WRITE string@()\n" : "WRITE LF@%%a\n");
+			emit(gen, "PUSHS nil@nil\n");
+			return TYPE_UNIT;
+		}
+
+		switch (type)
+		{
+		case TYPE_INT:
+			emit(gen, "INT2STRS\n");
+			break;
+		case TYPE_DOUBLE:
+			emit(gen, "FLOAT2STRS\n");
+			break;
+		case TYPE_STRING:
+			break;
+		case TYPE_UNIT:
+			emit(gen, "POPS LF@%%a\nPUSHS string@()\n");
+			break;
+		case TYPE_BOOL:
+		{
+			size_t id = label(gen);
+			emit(gen, "POPS LF@%%a\nJUMPIFEQ $L%zu_false LF@%%a bool@false\n", id);
+			emit(gen, "PUSHS string@true\nJUMP $L%zu_done\nLABEL $L%zu_false\n", id, id);
+			emit(gen, "PUSHS string@false\nLABEL $L%zu_done\n", id);
+			break;
+		}
+		default:
+			fail(gen, "unresolved toStr argument");
+			return TYPE_NONE;
+		}
+
+		return TYPE_STRING;
+	}
+
+	if (!strcmp(name, "readInt") || !strcmp(name, "readDouble") || !strcmp(name, "readLine"))
+	{
+		builtin_args(gen, args, 0, NULL, NULL);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		DataType type = !strcmp(name, "readInt") ? TYPE_INT : !strcmp(name, "readDouble") ? TYPE_DOUBLE : TYPE_STRING;
+		const char* kind = type == TYPE_INT ? "int" : type == TYPE_DOUBLE ? "float" : "string";
+		const char* fallback = type == TYPE_INT ? "int@0" : type == TYPE_DOUBLE ? "float@0x0p+0" : "string@";
+		size_t id = label(gen);
+
+		emit(gen, "READ LF@%%a %s\nJUMPIFEQ $L%zu_default LF@%%a nil@nil\n", kind, id);
+
+		if (type == TYPE_INT)
+		{
+			emit(gen, "LT LF@%%flag LF@%%a int@-2147483648\nJUMPIFEQ $L%zu_default LF@%%flag bool@true\n", id);
+			emit(gen, "GT LF@%%flag LF@%%a int@2147483647\nJUMPIFEQ $L%zu_default LF@%%flag bool@true\n", id);
+		}
+		emit(gen, "JUMP $L%zu_done\nLABEL $L%zu_default\nMOVE LF@%%a %s\n", id, id, fallback);
+		emit(gen, "LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
+		return type;
+	}
+
+	if (!strcmp(name, "toInt"))
+	{
+		builtin_args(gen, args, 1, (DataType[]){TYPE_DOUBLE}, NULL);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		size_t id = label(gen);
+
+		emit(gen, "POPS LF@%%a\nEQ LF@%%flag LF@%%a LF@%%a\n");
+		emit(gen, "JUMPIFEQ $L%zu_nan LF@%%flag bool@false\n", id);
+		emit(gen, "GT LF@%%flag LF@%%a float@0x1.fffffffcp+30\n");
+		emit(gen, "JUMPIFEQ $L%zu_max LF@%%flag bool@true\n", id);
+		emit(gen, "LT LF@%%flag LF@%%a float@-0x1p+31\n");
+		emit(gen, "JUMPIFEQ $L%zu_min LF@%%flag bool@true\n", id);
+		emit(gen, "FLOAT2INT LF@%%a LF@%%a\nJUMP $L%zu_done\n", id);
+		emit(gen, "LABEL $L%zu_nan\nMOVE LF@%%a int@0\nJUMP $L%zu_done\n", id, id);
+		emit(gen, "LABEL $L%zu_max\nMOVE LF@%%a int@2147483647\nJUMP $L%zu_done\n", id, id);
+		emit(gen, "LABEL $L%zu_min\nMOVE LF@%%a int@-2147483648\n", id);
+		emit(gen, "LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
+		return TYPE_INT;
+	}
+
+	if (!strcmp(name, "strLength"))
+	{
+		builtin_args(gen, args, 1, (DataType[]){TYPE_STRING}, NULL);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		emit(gen, "POPS LF@%%a\nSTRLEN LF@%%a LF@%%a\nPUSHS LF@%%a\n");
+		return TYPE_INT;
+	}
+
+	if (!strcmp(name, "chr"))
+	{
+		builtin_args(gen, args, 1, (DataType[]){TYPE_INT}, NULL);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		emit(gen, "INT2CHARS\n");
+		return TYPE_STRING;
+	}
+
+	if (!strcmp(name, "ord"))
+	{
+		builtin_args(gen, args, 2, (DataType[]){TYPE_STRING, TYPE_INT}, NULL);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		size_t id = label(gen);
+		emit(gen, "POPS LF@%%b\nPOPS LF@%%a\nSTRLEN LF@%%len LF@%%a\n");
+		emit(gen, "LT LF@%%flag LF@%%b int@0\nJUMPIFEQ $L%zu_bad LF@%%flag bool@true\n", id);
+		emit(gen, "LT LF@%%flag LF@%%b LF@%%len\nJUMPIFEQ $L%zu_bad LF@%%flag bool@false\n", id);
+		emit(gen, "STRI2INT LF@%%a LF@%%a LF@%%b\nJUMP $L%zu_done\nLABEL $L%zu_bad\n", id, id);
+		emit(gen, "MOVE LF@%%a int@-1\nLABEL $L%zu_done\nPUSHS LF@%%a\n", id);
+		return TYPE_INT;
+	}
+
+	if (!strcmp(name, "subStr"))
+	{
+		builtin_args(gen, args, 3, (DataType[]){TYPE_STRING, TYPE_INT, TYPE_INT}, NULL);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		size_t id = label(gen);
+		emit(gen, "POPS LF@%%c\nPOPS LF@%%b\nPOPS LF@%%a\nSTRLEN LF@%%len LF@%%a\n");
+		emit(gen, "LT LF@%%flag LF@%%b int@0\nJUMPIFEQ $L%zu_bad LF@%%flag bool@true\n", id);
+		emit(gen, "LT LF@%%flag LF@%%c int@0\nJUMPIFEQ $L%zu_bad LF@%%flag bool@true\n", id);
+		emit(gen, "GT LF@%%flag LF@%%b LF@%%c\nJUMPIFEQ $L%zu_bad LF@%%flag bool@true\n", id);
+		emit(gen, "LT LF@%%flag LF@%%b LF@%%len\nJUMPIFEQ $L%zu_bad LF@%%flag bool@false\n", id);
+		emit(gen, "GT LF@%%flag LF@%%c LF@%%len\nJUMPIFEQ $L%zu_bad LF@%%flag bool@true\n", id);
+		emit(gen, "MOVE LF@%%result string@\nLABEL $L%zu_loop\n", id);
+		emit(gen, "JUMPIFEQ $L%zu_done LF@%%b LF@%%c\n", id);
+		emit(gen, "GETCHAR LF@%%ch LF@%%a LF@%%b\nCONCAT LF@%%result LF@%%result LF@%%ch\nADD LF@%%b LF@%%b int@1\n");
+		emit(gen, "JUMP $L%zu_loop\nLABEL $L%zu_bad\nEXIT int@40\nLABEL $L%zu_done\nPUSHS LF@%%result\n", id, id, id);
+		return TYPE_STRING;
+	}
+
+	fail(gen, "unknown function");
+	return TYPE_NONE;
+}
+
+/*
+ * Generuje volání uživatelsky definované funkce. Argumenty ukládá
+ * na datový zásobník v pořadí jejich výskytu ve zdrojovém kódu.
+ * Volaná funkce je odebírá v opačném pořadí do vlastního rámce
+ * a na zásobník ukládá právě jednu návratovou hodnotu.
+ */
+static DataType call(Generator* gen, const AstNode* call_node)
+{
+	if (!call_node->name)
+	{
+		fail(gen, "missing function name");
+		return TYPE_NONE;
+	}
+	const AstNode* func = find_function(gen, call_node->name);
+
+	if (!func)
+	{
+		return builtin(gen, call_node);
+	}
+
+	const AstNode* args = call_node->arguments;
+	const AstNode* params = func->parameters;
+	while (args && params)
+	{
+		convert(gen, expression(gen, args), params->data_type);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		args = args->next;
+		params = params->next;
+	}
+
+	if (args || params || func->data_type == TYPE_NONE)
+	{
+		fail(gen, "unresolved function signature");
+		return TYPE_NONE;
+	}
+
+	emit(gen, "CALL $fn_%s\n", func->name);
+	return func->data_type;
+}
+
+/*
+ * Vyhodnotí operandy binárního výrazu zleva doprava a v případě
+ * rozdílných číselných typů provede implicitní konverzi na společný typ.
+ * Následně vygeneruje instrukce odpovídající danému operátoru.
+ * Celočíselné aritmetické výsledky normalizuje do rozsahu typu Int.
+ */
+static DataType binary(Generator* gen, const AstNode* binary_node)
+{
+	DataType left_type = expression(gen, binary_node->left);
+	if (gen->error)
+	{
+		return TYPE_NONE;
+	}
+	DataType right_type = expression(gen, binary_node->right);
+	if (gen->error)
+	{
+		return TYPE_NONE;
+	}
+	DataType common = left_type;
+
+	if (left_type == TYPE_INT && right_type == TYPE_DOUBLE)
+	{
+		emit(gen, "POPS LF@%%b\nINT2FLOATS\nPUSHS LF@%%b\n");
+		common = TYPE_DOUBLE;
+	}
+	else if (left_type == TYPE_DOUBLE && right_type == TYPE_INT)
+	{
+		emit(gen, "INT2FLOATS\n");
+		common = TYPE_DOUBLE;
+	}
+	else if (left_type != right_type)
+	{
+		fail(gen, "incompatible binary operands");
+		return TYPE_NONE;
+	}
+
+	switch (binary_node->op)
+	{
+	case OP_ADD:
+		if (common == TYPE_STRING)
+		{
+			emit(gen, "POPS LF@%%b\nPOPS LF@%%a\nCONCAT LF@%%a LF@%%a LF@%%b\nPUSHS LF@%%a\n");
+			return TYPE_STRING;
+		}
+		emit(gen, "ADDS\n");
+		break;
+	case OP_SUB:
+		emit(gen, "SUBS\n");
+		break;
+	case OP_MUL:
+		emit(gen, "MULS\n");
+		break;
+	case OP_DIV:
+		emit(gen, common == TYPE_INT ? "IDIVS\n" : "DIVS\n");
+		break;
+	case OP_EQUAL:
+		emit(gen, "EQS\n");
+		return TYPE_BOOL;
+	case OP_NOTEQUAL:
+		emit(gen, "EQS\nNOTS\n");
+		return TYPE_BOOL;
+	case OP_LESSTHAN:
+		emit(gen, "LTS\n");
+		return TYPE_BOOL;
+	case OP_GREATERTHAN:
+		emit(gen, "GTS\n");
+		return TYPE_BOOL;
+	case OP_LESSOREQUAL:
+	case OP_GREATEROREQUAL:
+		emit(gen, "POPS LF@%%b\nPOPS LF@%%a\nPUSHS LF@%%a\nPUSHS LF@%%b\n");
+		emit(gen, binary_node->op == OP_LESSOREQUAL ? "LTS\n" : "GTS\n");
+		emit(gen, "PUSHS LF@%%a\nPUSHS LF@%%b\nEQS\nORS\n");
+		return TYPE_BOOL;
+	default:
+		fail(gen, "unsupported binary operator");
+		return TYPE_NONE;
+	}
+
+	if (common == TYPE_INT)
+	{
+		wrap_int(gen);
+	}
+
+	return common;
+}
+
+/*
+ * Generuje kód výrazu podle druhu uzlu AST a vrací datový typ
+ * výsledné hodnoty. U unárního operátoru negace provádí změnu
+ * znaménka a u celočíselných hodnot normalizaci do rozsahu typu Int.
+ */
+static DataType expression(Generator* gen, const AstNode* expr_node)
+{
+	if (gen->error)
+	{
+		return TYPE_NONE;
+	}
+	if (!expr_node)
+	{
+		fail(gen, "missing expression");
+		return TYPE_NONE;
+	}
+
+	switch (expr_node->kind)
+	{
+	case AST_LIT:
+		return literal(gen, expr_node);
+	case AST_ID:
+	{
+		Local var = lookup(gen, expr_node->name);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		emit(gen, "PUSHS LF@v%zu\n", var.id);
+		return var.type;
+	}
+	case AST_FUNC_CALL:
+		return call(gen, expr_node);
+	case AST_BINARY_OP:
+		return binary(gen, expr_node);
+	case AST_UNARY_OP:
+		if (expr_node->op != OP_NEG)
+		{
+			fail(gen, "unsupported unary operator");
+			return TYPE_NONE;
+		}
+
+		DataType type = expression(gen, expr_node->left);
+		if (gen->error)
+		{
+			return TYPE_NONE;
+		}
+		if (type == TYPE_INT)
+		{
+			emit(gen, "PUSHS int@-1\nMULS\n");
+			wrap_int(gen);
+		}
+		else if (type == TYPE_DOUBLE)
+		{
+			emit(gen, "PUSHS float@-0x1p+0\nMULS\n");
+		}
+		else
+		{
+			fail(gen, "invalid unary operand");
+			return TYPE_NONE;
+		}
+
+		return type;
+	default:
+		fail(gen, "unexpected expression");
+		return TYPE_NONE;
+	}
+
+	return TYPE_NONE;
+}
+
+/*
+ * Deklaruje všechny lokální proměnné na začátku funkce ve stejném
+ * pořadí, v jakém jsou uzly procházeny do hloubky při generování kódu.
+ * Tím zabraňuje opakovanému provádění instrukce DEFVAR uvnitř cyklů.
+ */
+static void declare_locals(Generator* gen, const AstNode* stmt_node, size_t* id)
+{
+	for (; stmt_node && !gen->error; stmt_node = stmt_node->next)
+	{
+		if (stmt_node->kind == AST_VAR_DEF)
+		{
+			emit(gen, "DEFVAR LF@v%zu\n", (*id)++);
+		}
+		else if (stmt_node->kind == AST_IF || stmt_node->kind == AST_WHILE)
+		{
+			declare_locals(gen, stmt_node->body, id);
+
+			if (stmt_node->kind == AST_IF)
+			{
+				declare_locals(gen, stmt_node->else_body, id);
+			}
+		}
+	}
+}
+
+/*
+ * Zpracuje návratovou hodnotu uloženou na datovém zásobníku.
+ * Pokud má funkce návratový typ Unit, nahradí hodnotu za nil.
+ * V opačném případě provede případnou konverzi na očekávaný typ.
+ * Nakonec vygeneruje skok na konec funkce.
+ */
+static void finish_return(Generator* gen, DataType actual)
+{
+	if (gen->error)
+	{
+		return;
+	}
+	DataType expected = gen->function->data_type;
+
+	if (expected == TYPE_UNIT)
+	{
+		emit(gen, "POPS LF@%%a\nPUSHS nil@nil\n");
+	}
+	else
+	{
+		convert(gen, actual, expected);
+	}
+
+	emit(gen, "JUMP $ret_%s\n", gen->function->name);
+}
+
+static void block(Generator* gen, const AstNode* stmt_node, bool function_body);
+
+/*
+ * Generuje kód jednotlivých příkazů podle druhu uzlu AST.
+ * Pouze poslední výraz těla funkce tvoří implicitní návratovou
+ * hodnotu. Výsledky výrazů ve vnořených blocích jsou zahozeny.
+ */
+static void statement(Generator* gen, const AstNode* stmt_node, bool last)
+{
+	switch (stmt_node->kind)
+	{
+	case AST_VAR_DEF:
+	{
+		size_t id = gen->next_var++;
+		DataType actual = expression(gen, stmt_node->value);
+		if (gen->error)
+		{
+			return;
+		}
+		DataType t = stmt_node->data_type == TYPE_NONE ? actual : stmt_node->data_type;
+		convert(gen, actual, t);
+		emit(gen, "POPS LF@v%zu\n", id);
+
+		/*
+		 * Vazba proměnné vzniká až po vyhodnocení inicializačního
+		 * výrazu, aby bylo správně zajištěno zastínění proměnných.
+		 */
+		bind(gen, stmt_node->name, id, t);
+		break;
+	}
+	case AST_ASSIGN:
+	{
+		Local var = lookup(gen, stmt_node->name);
+		if (gen->error)
+		{
+			return;
+		}
+		convert(gen, expression(gen, stmt_node->value), var.type);
+		emit(gen, "POPS LF@v%zu\n", var.id);
+		break;
+	}
+	case AST_IF:
+	{
+		size_t id = label(gen);
+
+		if (expression(gen, stmt_node->condition) != TYPE_BOOL)
+		{
+			fail(gen, "non-boolean if condition");
+			return;
+		}
+
+		emit(gen, "PUSHS bool@false\nJUMPIFEQS $L%zu_else\n", id);
+		block(gen, stmt_node->body, false);
+		if (gen->error)
+		{
+			return;
+		}
+		emit(gen, "JUMP $L%zu_end\nLABEL $L%zu_else\n", id, id);
+		block(gen, stmt_node->else_body, false);
+		emit(gen, "LABEL $L%zu_end\n", id);
+		break;
+	}
+	case AST_WHILE:
+	{
+		size_t id = label(gen);
+		emit(gen, "LABEL $L%zu_loop\n", id);
+
+		if (expression(gen, stmt_node->condition) != TYPE_BOOL)
+		{
+			fail(gen, "non-Boolean while condition");
+			return;
+		}
+
+		emit(gen, "PUSHS bool@false\nJUMPIFEQS $L%zu_end\n", id);
+		block(gen, stmt_node->body, false);
+		if (gen->error)
+		{
+			return;
+		}
+		emit(gen, "JUMP $L%zu_loop\nLABEL $L%zu_end\n", id, id);
+		break;
+	}
+	case AST_RETURN:
+		if (stmt_node->value)
+		{
+			finish_return(gen, expression(gen, stmt_node->value));
+		}
+		else
+		{
+			emit(gen, "PUSHS nil@nil\n");
+			finish_return(gen, TYPE_UNIT);
+		}
+		return;
+	case AST_FUNC_CALL:
+	case AST_BINARY_OP:
+	case AST_UNARY_OP:
+	case AST_LIT:
+	case AST_ID:
+	{
+		DataType type = expression(gen, stmt_node);
+		if (last)
+		{
+			finish_return(gen, type);
+		}
+		else
+		{
+			emit(gen, "POPS LF@%%a\n");
+		}
+		return;
+	}
+	default:
+		fail(gen, "unexpected statement");
+		return;
+	}
+
+	/*
+	 * Pokud je posledním příkazem funkce s návratovým typem jiným
+	 * než Unit podmínka if, musí všechny její možné větve obsahovat
+	 * explicitní návrat. Není tedy potřeba vytvářet návratovou hodnotu.
+	 */
+	if (last && gen->function->data_type == TYPE_UNIT)
+	{
+		emit(gen, "PUSHS nil@nil\nJUMP $ret_%s\n", gen->function->name);
+	}
+}
+
+/*
+ * Generuje kód zřetězeného seznamu příkazů s vlastním rozsahem
+ * platnosti. Po opuštění bloku obnoví původní počet vazeb, čímž
+ * odstraní vazby lokálních proměnných deklarovaných uvnitř bloku.
+ */
+static void block(Generator* gen, const AstNode* stmt_node, bool function_body)
+{
+	size_t saved = gen->count;
+
+	for (; stmt_node && !gen->error; stmt_node = stmt_node->next)
+	{
+		statement(gen, stmt_node, function_body && !stmt_node->next);
+	}
+
+	gen->count = saved;
+}
+
+/*
+ * Generuje kód uživatelsky definované funkce. Pro každé volání
+ * vytváří nový lokální rámec, čímž umožňuje i rekurzivní volání.
+ * Deklaruje parametry a lokální proměnné, načte argumenty
+ * ze zásobníku a vygeneruje tělo funkce.
+ */
+static void function(Generator* gen, const AstNode* func)
+{
+	if (func->data_type == TYPE_NONE)
+	{
+		fail(gen, "invalid function return type");
+		return;
+	}
+
+	gen->function = func;
+	gen->count = 0;
+	gen->next_var = 0;
+
+	emit(gen, "LABEL $fn_%s\nCREATEFRAME\nPUSHFRAME\n", func->name);
+	emit(gen, "DEFVAR LF@%%a\nDEFVAR LF@%%b\nDEFVAR LF@%%c\nDEFVAR LF@%%len\nDEFVAR LF@%%flag\nDEFVAR LF@%%ch\nDEFVAR LF@%%result\n");
+
+	for (const AstNode* params = func->parameters; params; params = params->next)
+	{
+		size_t id = gen->next_var++;
+		emit(gen, "DEFVAR LF@v%zu\n", id);
+		bind(gen, params->name, id, params->data_type);
+		if (gen->error)
+		{
+			return;
+		}
+	}
+
+	for (size_t i = gen->next_var; i > 0 && !gen->error; --i)
+	{
+		emit(gen, "POPS LF@v%zu\n", i - 1);
+	}
+
+	size_t end_id = gen->next_var;
+	declare_locals(gen, func->body, &end_id);
+	block(gen, func->body, true);
+	if (gen->error)
+	{
+		return;
+	}
+
+	if (gen->next_var != end_id)
+	{
+		fail(gen, "invalid variable declaration");
+		return;
+	}
+
+	/*
+	 * U správně vytvořené funkce s návratovým typem jiným než Unit
+	 * nelze dosáhnout konce těla bez vrácení návratové hodnoty.
+	 */
+	if (func->data_type == TYPE_UNIT)
+	{
+		emit(gen, "PUSHS nil@nil\n");
+	}
+	else
+	{
+		emit(gen, "EXIT int@40\n");
+	}
+
+	emit(gen, "LABEL $ret_%s\nPOPFRAME\nRETURN\n", func->name);
+	gen->count = 0;
+}
+
+/*
+ * Generuje výsledný kód celého programu ve formátu IFJcode26.
+ * Vyhledá a ověří vstupní funkci main, vygeneruje její volání
+ * a ukončení programu, aby provádění nepokračovalo do definic
+ * ostatních funkcí. Následně vygeneruje všechny definované funkce
+ * a uvolní pomocné prostředky generátoru. Vrací 0 nebo 99.
+ */
+int codegen_generate(const AstNode* program)
+{
+	Generator state = {0};
+	Generator* gen = &state;
+	gen->program = program;
+
+	if (!program || program->kind != AST_PROGRAM)
+	{
+		fail(gen, "expected program AST");
+		return gen->error;
+	}
+
+	const AstNode* main_func = NULL;
+
+	for (const AstNode* func = program->body; func; func = func->next)
+	{
+		if (func->kind != AST_FUNC_DEF || !func->name)
+		{
+			fail(gen, "invalid function definition");
+			return gen->error;
+		}
+
+		if (func->is_main)
+		{
+			if (main_func)
+			{
+				fail(gen, "multiple entry points");
+				return gen->error;
+			}
+			main_func = func;
+		}
+	}
+
+	if (!main_func || main_func->parameters || main_func->data_type != TYPE_UNIT)
+	{
+		fail(gen, "invalid entry point");
+		return gen->error;
+	}
+
+	emit(gen, ".IFJcode26\nDEFVAR GF@%%discard\nCALL $fn_%s\nPOPS GF@%%discard\nEXIT int@0\n", main_func->name);
+
+	for (const AstNode* func = program->body; func && !gen->error; func = func->next)
+	{
+		function(gen, func);
+	}
+
+	free(gen->locals);
+
+	if (!gen->error && fflush(stdout) == EOF)
+	{
+		fail(gen, "cannot flush generated code");
+	}
+
+	return gen->error;
+}

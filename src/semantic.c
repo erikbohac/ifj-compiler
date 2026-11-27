@@ -1,21 +1,27 @@
 /**
  * Implementace překladače imperativního jazyka IFJ26
  * @file	semantic.c
- * @brief	text
+ * @brief	sémantická analýza AST a kontrola typů/výrazů
  *
  * @author	Veronika Smékalová (xsmekav00)
  */
 
-#include "semantic.h"
+#include "semantic.h" //rozhraní sématnické analýzy
 
-#include "ast.h"
-#include "symtable.h"
+#include "ast.h"	  //abstraktní syntaktický strom
+#include "symtable.h" //tabulka symbolů
 
-#include <stdbool.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
+#include <stdbool.h> //datový typ bool
+#include <stdio.h>	 //strandartní input/output
+#include <stdlib.h>	 //dynamická správa paměti
+#include <string.h>	 //práce s řetězmi
 
+/**
+ * @brief pomocný kontext aktuálně analyzované fce
+ *
+ * sleduje očekávaný nebo odvozený návratový typ, přítomnost příkazu
+ * return a zda jde o vstupní fci označenou @main
+ */
 typedef struct
 {
 	DataType expected_return_type;
@@ -24,17 +30,36 @@ typedef struct
 	bool is_main;
 } FuncContext;
 
+/**
+ * @brief uzel seznamu lokál identifikátorů v akt rozsahu platnosti
+ *
+ * uchovává názvy lokál proměnných a pramentrů, aby se po opuštění bloku
+ * nebo fce daly odebrat z tabulky symbolů
+ */
 typedef struct LocalEntry
 {
 	char* name;
 	struct LocalEntry* next;
 } LocalEntry;
 
+/**
+ * @brief zjistí, jestli je typ číselný (Int nebo Double)
+ *
+ * @param t - kontrolovaný datový typ
+ * @return bool - true pro TYPE_INT a TYPE_DOUBLE, jinak false
+ */
 static bool is_numeric(DataType t)
 {
 	return t == TYPE_INT || t == TYPE_DOUBLE;
 }
 
+/**
+ * @brief ověří kompatibilitu typů (včetně Int -> Double)
+ *
+ * @param from - typ hodnoty/výrazu
+ * @param to - očekávaný typ
+ * @return bool - true pokud sedí nebo jde o povolený převod Int na Double
+ */
 static bool is_compatible(DataType from, DataType to)
 {
 	if (from == TYPE_NONE || to == TYPE_NONE)
@@ -49,6 +74,13 @@ static bool is_compatible(DataType from, DataType to)
 	return false;
 }
 
+/**
+ * @brief najde společný typ dvou typů (třeba pro větve if/else)
+ *
+ * @param a - první typ
+ * @param b - druhý typ
+ * @return DataType - společný typ, u čísel TYPE_DOUBLE, jinak TYPE_NONE
+ */
 static DataType common_type(DataType a, DataType b)
 {
 	if (a == TYPE_NONE || b == TYPE_NONE)
@@ -63,6 +95,13 @@ static DataType common_type(DataType a, DataType b)
 	return TYPE_NONE;
 }
 
+/**
+ * @brief uloží název lokální proměnné/parametru do seznamu aktuálního rozsahu
+ *
+ * @param locals - ukazatel na začátek seznamu lokálních názvů
+ * @param name - název identifikátoru k uložení
+ * @return bool - true při úspěchu, false při chybě nebo neplatném vstupu
+ */
 static bool record_local_name(LocalEntry** locals, const char* name)
 {
 	if (name == NULL || locals == NULL)
@@ -85,6 +124,14 @@ static bool record_local_name(LocalEntry** locals, const char* name)
 	return true;
 }
 
+/**
+ * @brief odebere klíč z AVL stromu a uvolní jeho data i uzel
+ *
+ * @param root - kořen aktuálního podstromu
+ * @param key - hledaný klíč (název symbolu)
+ * @param removed - výstupní příznak, zda se klíč podařilo smazat
+ * @return AVLNode* - nový kořen podstromu po případném odebrání uzlu
+ */
 static AVLNode* remove_key_recursive(AVLNode* root, const char* key, bool* removed)
 {
 	if (root == NULL)
@@ -151,6 +198,12 @@ static AVLNode* remove_key_recursive(AVLNode* root, const char* key, bool* remov
 	return root;
 }
 
+/**
+ * @brief uklidí lokální symboly z tabulky symbolů a uvolní seznam jejich názvů
+ *
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @param locals - seznam lokálních názvů k odstranění
+ */
 static void cleanup_locals(AVLNode** symtable, LocalEntry** locals)
 {
 	if (locals == NULL)
@@ -174,6 +227,16 @@ static void cleanup_locals(AVLNode** symtable, LocalEntry** locals)
 	*locals = NULL;
 }
 
+/**
+ * @brief zaregistruje jednu vestavěnou fci do tabulky symbolů
+ *
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @param name - název vestavěné fce
+ * @param ret_type - návratový typ fce
+ * @param param_count - počet parametrů
+ * @param param_types - pole typů parametrů (nebo NULL)
+ * @return bool - true při úspěchu, false při chybě alokace/vložení
+ */
 static bool register_signle_builtin(AVLNode** symtable, const char* name, DataType ret_type,
 									int param_count, const DataType* param_types)
 {
@@ -205,6 +268,12 @@ static bool register_signle_builtin(AVLNode** symtable, const char* name, DataTy
 	return true;
 }
 
+/**
+ * @brief zaregistruje všechny vestavěné fce jazyka do tabulky symbolů
+ *
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @return int - 0 při úspěchu, jinak 99 při chybě registrace
+ */
 static int register_builtins(AVLNode** symtable)
 {
 	static const DataType any_param[] = {TYPE_NONE};
@@ -250,6 +319,14 @@ static int register_builtins(AVLNode** symtable)
 	return 0;
 }
 
+/**
+ * @brief projde AST a zaregistruje uživatelské fce vč. kontroly @main a duplicit
+ *
+ * @param node - aktuální uzel AST
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @param main_count - počítadlo funkcí s anotací @main
+ * @return int - 0 při úspěchu, jinak chybový kód (4, 5, 6 nebo 99)
+ */
 static int register_functions(AstNode* node, AVLNode** symtable, int* main_count)
 {
 	if (node == NULL)
@@ -312,10 +389,19 @@ static int register_functions(AstNode* node, AVLNode** symtable, int* main_count
 	return register_functions(node->next, symtable, main_count);
 }
 
+// dopředné deklarace pro vzájemnou rekurzi výrazů, příkazů a bloků
 static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cntx);
 static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, LocalEntry** locals,
 						DataType* out_block_type);
 
+/**
+ * @brief sémanticky zkontroluje výraz a doplní do jeho uzlu odvozený typ
+ *
+ * @param node - uzel výrazu v AST
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @param cntx - kontext aktuální fce (nebo NULL mimo fci)
+ * @return int - 0 při úspěchu, jinak příslušný chybový kód (3, 5, 6 nebo 99)
+ */
 static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cntx)
 {
 	if (node == NULL)
@@ -323,7 +409,8 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 
 	switch (node->kind)
 	{
-	case AST_FUNC_CALL:
+	case AST_FUNC_CALL: // ověří existenci fce, počet a kompatibilitu argumentů, nastaví návratový
+						// typ
 	{
 		if (node->name == NULL || symtable == NULL || *symtable == NULL)
 			return 3;
@@ -360,7 +447,8 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 		return 0;
 	}
 
-	case AST_BINARY_OP:
+	case AST_BINARY_OP: // zkontroluje operandy a typy pro binární operátor (aritmetika, řetězce,
+						// relace, rovnost)
 	{
 		if (node->left == NULL || node->right == NULL)
 			return 99;
@@ -441,7 +529,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 		}
 	}
 
-	case AST_UNARY_OP:
+	case AST_UNARY_OP: // zkontroluje operand a typ pro unární operátor (např. unární mínus)
 	{
 		if (node->left == NULL)
 			return 99;
@@ -474,12 +562,12 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 		return 6;
 	}
 
-	case AST_LIT:
+	case AST_LIT: // ověří, že literál má platný datový typ
 		if (node->data_type == TYPE_NONE)
 			return 6;
 		return 0;
 
-	case AST_ID:
+	case AST_ID: // najde proměnnou v tabulce symbolů, ověří inicializaci a doplní typ + mutabilitu
 	{
 		if (node->name == NULL || symtable == NULL || *symtable == NULL)
 			return 3;
@@ -514,11 +602,21 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 			return 0;
 		}*/
 
-	default:
+	default: // neznámý nebo nepovolený uzel ve výrazu -> chyba typu (6)
 		return 6;
 	}
 }
 
+/**
+ * @brief rekurzivně zkontroluje uzel příkazu, definice nebo bloku v AST
+ *
+ * @param node - aktuální uzel AST
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @param cntx - kontext aktuální fce (nebo NULL na úrovni programu)
+ * @param locals - seznam lokálních symbolů aktuálního rozsahu
+ * @param out_block_type - výstupní typ posledního příkazu/výrazu bloku (nebo NULL)
+ * @return int - 0 při úspěchu, jinak příslušný chybový kód (3, 4, 6, 7, 10 nebo 99)
+ */
 static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, LocalEntry** locals,
 						DataType* out_block_type)
 {
@@ -530,7 +628,8 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 
 	switch (node->kind)
 	{
-	case AST_PROGRAM:
+	case AST_PROGRAM: // zaregistruje vestavěné i uživatelské fce, zkontroluje @main a analyzuje
+					  // tělo programu
 	{
 		int main_count = 0;
 
@@ -555,7 +654,8 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_FUNC_DEF:
+	case AST_FUNC_DEF: // vloží parametry do lokálního rozsahu, zkontroluje tělo a návratový
+					   // typ/odvození
 	{
 		if (node->name == NULL || symtable == NULL)
 			return 99;
@@ -637,10 +737,11 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_PARAMETR:
+	case AST_PARAMETR: // parametry se zpracovávají přímo v rámci AST_FUNC_DEF
 		break;
 
-	case AST_VAR_DEF:
+	case AST_VAR_DEF: // zkontroluje duplicitu a inicializaci val/var, odvodí/ověří typ a vloží do
+					  // tabulky
 	{
 		if (node->name == NULL || symtable == NULL)
 			return 99;
@@ -684,7 +785,8 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_ASSIGN:
+	case AST_ASSIGN: // ověří existenci a mutabilitu proměnné (var) a kompatibilitu přiřazované
+					 // hodnoty
 	{
 		if (node->name == NULL || symtable == NULL || *symtable == NULL || node->value == NULL)
 			return 99;
@@ -710,7 +812,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_IF:
+	case AST_IF: // zkontroluje podmínku typu Bool a typy větví then/else
 	{
 		if (node->condition == NULL)
 			return 6;
@@ -744,7 +846,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_WHILE:
+	case AST_WHILE: // zkontroluje podmínku typu Bool a projde tělo cyklu
 	{
 		if (node->condition == NULL)
 			return 6;
@@ -826,7 +928,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 			break;
 		}*/
 
-	case AST_RETURN:
+	case AST_RETURN: // zaznamená return ve fci a ověří shodu návratové hodnoty s očekávaným typem
 	{
 		if (cntx != NULL)
 			cntx->has_return_stmt = true;
@@ -856,11 +958,11 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_FUNC_CALL:
-	case AST_BINARY_OP:
-	case AST_UNARY_OP:
-	case AST_LIT:
-	case AST_ID:
+	case AST_FUNC_CALL: // samostatné volání fce jako příkaz – vyhodnotí výraz a vezme jeho typ
+	case AST_BINARY_OP: // samostatný binární výraz jako příkaz
+	case AST_UNARY_OP:	// samostatný unární výraz jako příkaz
+	case AST_LIT:		// samostatný literál jako příkaz (např. ())
+	case AST_ID:		// samostatný identifikátor jako příkaz
 	{
 		err = analyse_expression(node, symtable, cntx);
 		if (err != 0)
@@ -870,7 +972,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	default:
+	default: // nepodporovaný nebo chybný uzel v AST -> chyba 6
 		return 6;
 	}
 
@@ -883,6 +985,13 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 	return 0;
 }
 
+/**
+ * @brief spustí sémantickou analýzu celého AST nad tabulkou symbolů
+ *
+ * @param node - kořenový uzel AST (typicky AST_PROGRAM)
+ * @param symtable - ukazatel na kořen tabulky symbolů
+ * @return int - 0 při úspěchu, jinak příslušný chybový kód (3–10 nebo 99)
+ */
 int semantic_analyze(AstNode* node, AVLNode** symtable)
 {
 	if (node == NULL || symtable == NULL)

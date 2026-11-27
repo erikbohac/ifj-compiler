@@ -601,3 +601,25 @@ static void declare_locals(const AstNode* nodes, size_t* id)
 	}
 }
 
+/*
+ * Zpracuje návratovou hodnotu uloženou na datovém zásobníku.
+ * Pokud má funkce návratový typ Unit, nahradí hodnotu za nil.
+ * V opačném případě provede případnou konverzi na očekávaný typ.
+ * Nakonec vygeneruje skok na konec funkce.
+ */
+static void finish_return(Generator* gen, DataType actual)
+{
+	DataType expected = gen->function->data_type;
+
+	if (expected == TYPE_UNIT)
+	{
+		emit("POPS LF@%%a\nPUSHS nil@nil\n");
+	}
+	else
+	{
+		convert(actual, expected);
+	}
+
+	emit("JUMP $ret_%s\n", gen->function->name);
+}
+

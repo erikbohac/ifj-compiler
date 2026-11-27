@@ -61,7 +61,7 @@ static void emit(const char* format, ...)
 
 	if (result < 0)
 	{
-		fail("cannot write generated code");
+		fail("problem writing generated code");
 	}
 }
 
@@ -213,7 +213,7 @@ static void convert(DataType from, DataType to)
 	}
 	else
 	{
-		fail("incompatible types in semantically checked AST");
+		fail("incompatible data types");
 	}
 }
 
@@ -569,7 +569,7 @@ static DataType expression(Generator* gen, const AstNode* nodes)
 
 			return type;
 		default:
-			fail("unexpected expression node");
+			fail("unexpected expression");
 			break;
 	}
 
@@ -662,7 +662,7 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 
             if (expression(gen, nodes->condition) != TYPE_BOOL)
 			{
-				fail("non-Boolean if condition");
+				fail("non-boolean if condition");
 			}
 
 			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_else\n", id);
@@ -716,7 +716,7 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 			return;
 		}
 		default:
-			fail("unexpected statement node");
+			fail("unexpected statement");
 			break;
 	}
 
@@ -786,7 +786,7 @@ static void function(Generator* gen, const AstNode* func)
 
 	if (gen->next_var != end_id)
 	{
-		fail("inconsistent variable declaration traversal");
+		fail("invalid variable declaration");
 	}
 
 	/*

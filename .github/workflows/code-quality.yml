@@ -17,12 +17,5 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y clang-format clang-tidy
 
-      - name: Check formatting
-        run: |
-          find src -type f \( -name '*.c' -o -name '*.h' \) \
-          -exec clang-format --dry-run --Werror {} +
-
-      - name: Run clang-tidy
-        run: |
-          find src -type f -name '*.c' \
-          -exec clang-tidy --warnings-as-errors='*' {} -- -std=c23 -Isrc \;
+      - name: Check code quality
+        run: make check

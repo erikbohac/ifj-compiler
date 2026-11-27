@@ -426,7 +426,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 
 			return 6;
 
-		case OP_AND:
+		/*case OP_AND:
 		case OP_OR:
 			if (lt == TYPE_BOOL && rt == TYPE_BOOL)
 			{
@@ -434,7 +434,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 				return 0;
 			}
 
-			return 6;
+			return 6;*/
 
 		default:
 			return 6;
@@ -462,14 +462,14 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 			return 0;
 		}
 
-		if (node->op == OP_NOT)
+		/*if (node->op == OP_NOT)
 		{
 			if (node->left->data_type != TYPE_BOOL)
 				return 6;
 
 			node->data_type = TYPE_BOOL;
 			return 0;
-		}
+		}*/
 
 		return 6;
 	}
@@ -500,7 +500,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 		return 0;
 	}
 
-	case AST_IF:
+	/*case AST_IF:
 	{
 		DataType if_type = TYPE_NONE;
 		int err = analyse_node(node, symtable, cntx, NULL, &if_type);
@@ -512,7 +512,7 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 
 		node->data_type = if_type;
 		return 0;
-	}
+	}*/
 
 	default:
 		return 6;
@@ -764,7 +764,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	case AST_FOR:
+	/*case AST_FOR:
 	{
 		if (node->name == NULL || symtable == NULL || node->range_start == NULL ||
 			node->range_end == NULL)
@@ -824,7 +824,7 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 
 		stmt_type = TYPE_UNIT;
 		break;
-	}
+	}*/
 
 	case AST_RETURN:
 	{

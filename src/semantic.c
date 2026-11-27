@@ -426,15 +426,15 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 
 			return 6;
 
-		/*case OP_AND:
-		case OP_OR:
-			if (lt == TYPE_BOOL && rt == TYPE_BOOL)
-			{
-				node->data_type = TYPE_BOOL;
-				return 0;
-			}
+			/*case OP_AND:
+			case OP_OR:
+				if (lt == TYPE_BOOL && rt == TYPE_BOOL)
+				{
+					node->data_type = TYPE_BOOL;
+					return 0;
+				}
 
-			return 6;*/
+				return 6;*/
 
 		default:
 			return 6;
@@ -500,19 +500,19 @@ static int analyse_expression(AstNode* node, AVLNode** symtable, FuncContext* cn
 		return 0;
 	}
 
-	/*case AST_IF:
-	{
-		DataType if_type = TYPE_NONE;
-		int err = analyse_node(node, symtable, cntx, NULL, &if_type);
-		if (err != 0)
-			return err;
+		/*case AST_IF:
+		{
+			DataType if_type = TYPE_NONE;
+			int err = analyse_node(node, symtable, cntx, NULL, &if_type);
+			if (err != 0)
+				return err;
 
-		else if (if_type == TYPE_NONE)
-			return 6;
+			else if (if_type == TYPE_NONE)
+				return 6;
 
-		node->data_type = if_type;
-		return 0;
-	}*/
+			node->data_type = if_type;
+			return 0;
+		}*/
 
 	default:
 		return 6;
@@ -764,67 +764,67 @@ static int analyse_node(AstNode* node, AVLNode** symtable, FuncContext* cntx, Lo
 		break;
 	}
 
-	/*case AST_FOR:
-	{
-		if (node->name == NULL || symtable == NULL || node->range_start == NULL ||
-			node->range_end == NULL)
-			return 6;
-
-		if (table_search(*symtable, node->name) != NULL)
-			return 4;
-
-		err = analyse_expression(node->range_start, symtable, cntx);
-		if (err != 0)
-			return err;
-		if (node->range_start->data_type != TYPE_INT)
-			return 6;
-
-		err = analyse_expression(node->range_end, symtable, cntx);
-		if (err != 0)
-			return err;
-		if (node->range_end->data_type != TYPE_INT)
-			return 6;
-
-		if (node->step != NULL)
+		/*case AST_FOR:
 		{
-			err = analyse_expression(node->step, symtable, cntx);
+			if (node->name == NULL || symtable == NULL || node->range_start == NULL ||
+				node->range_end == NULL)
+				return 6;
+
+			if (table_search(*symtable, node->name) != NULL)
+				return 4;
+
+			err = analyse_expression(node->range_start, symtable, cntx);
 			if (err != 0)
 				return err;
-			if (node->step->data_type != TYPE_INT)
+			if (node->range_start->data_type != TYPE_INT)
 				return 6;
-			if (node->step->kind == AST_LIT && node->step->int_val == 0)
-				return 10;
-		}
 
-		if (!table_insertion(symtable, node->name, TYPE_INT, TAG_VAL, node->line))
-			return 99;
-
-		if (locals != NULL && !record_local_name(locals, node->name))
-			return 99;
-
-		AVLNode* iter_node = table_search(*symtable, node->name);
-		if (iter_node != NULL && iter_node->data != NULL)
-		{
-			SymbolData* iterr_data = (SymbolData*)iter_node->data;
-			iterr_data->is_inicialized = true;
-		}
-
-		if (node->guard != NULL)
-		{
-			err = analyse_expression(node->guard, symtable, cntx);
+			err = analyse_expression(node->range_end, symtable, cntx);
 			if (err != 0)
 				return err;
-			if (node->guard->data_type != TYPE_BOOL)
+			if (node->range_end->data_type != TYPE_INT)
 				return 6;
-		}
 
-		err = analyse_node(node->body, symtable, cntx, locals, NULL);
-		if (err != 0)
-			return err;
+			if (node->step != NULL)
+			{
+				err = analyse_expression(node->step, symtable, cntx);
+				if (err != 0)
+					return err;
+				if (node->step->data_type != TYPE_INT)
+					return 6;
+				if (node->step->kind == AST_LIT && node->step->int_val == 0)
+					return 10;
+			}
 
-		stmt_type = TYPE_UNIT;
-		break;
-	}*/
+			if (!table_insertion(symtable, node->name, TYPE_INT, TAG_VAL, node->line))
+				return 99;
+
+			if (locals != NULL && !record_local_name(locals, node->name))
+				return 99;
+
+			AVLNode* iter_node = table_search(*symtable, node->name);
+			if (iter_node != NULL && iter_node->data != NULL)
+			{
+				SymbolData* iterr_data = (SymbolData*)iter_node->data;
+				iterr_data->is_inicialized = true;
+			}
+
+			if (node->guard != NULL)
+			{
+				err = analyse_expression(node->guard, symtable, cntx);
+				if (err != 0)
+					return err;
+				if (node->guard->data_type != TYPE_BOOL)
+					return 6;
+			}
+
+			err = analyse_node(node->body, symtable, cntx, locals, NULL);
+			if (err != 0)
+				return err;
+
+			stmt_type = TYPE_UNIT;
+			break;
+		}*/
 
 	case AST_RETURN:
 	{

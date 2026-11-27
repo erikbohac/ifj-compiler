@@ -195,3 +195,49 @@ static DataType literal(const AstNode* node)
 
 	return node->data_type;
 }
+
+/*
+ * Provede jedinou povolenou implicitní číselnou konverzi
+ * hodnoty na datovém zásobníku, a to z typu Int na Double.
+ */
+static void convert(DataType from, DataType to)
+{
+	if (from == to)
+	{
+		return;
+	}
+
+	if (from == TYPE_INT && to == TYPE_DOUBLE)
+	{
+		emit("INT2FLOATS\n");
+	}
+	else
+	{
+		fail("incompatible types in semantically checked AST");
+	}
+}
+
+/*
+ * Normalizuje celočíselný výsledek na zásobníku do rozsahu
+ * 32bitového celého čísla se znaménkem podle pravidel jazyka Scala.
+ * Výsledek sčítání, odčítání, násobení a dělení dvou hodnot typu Int
+ * se před normalizací vejde do 64bitového celého čísla se znaménkem
+ * cílového jazyka.
+ */
+static void wrap_int(Generator* gen)
+{
+	size_t id = label(gen);
+	emit("POPS LF@%%a\n");
+	emit("IDIV LF@%%b LF@%%a int@4294967296\n");
+	emit("MUL LF@%%b LF@%%b int@4294967296\n");
+	emit("SUB LF@%%a LF@%%a LF@%%b\n");
+	emit("GT LF@%%flag LF@%%a int@2147483647\n");
+	emit("JUMPIFEQ $L%zu_low LF@%%flag bool@false\n", id);
+	emit("SUB LF@%%a LF@%%a int@4294967296\n");
+	emit("LABEL $L%zu_low\n", id);
+	emit("LT LF@%%flag LF@%%a int@-2147483648\n");
+	emit("JUMPIFEQ $L%zu_done LF@%%flag bool@false\n", id);
+	emit("ADD LF@%%a LF@%%a int@4294967296\n");
+	emit("LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
+}
+

@@ -167,23 +167,23 @@ static void emit_string(const char* str)
  * Vloží hodnotu literálu na datový zásobník podle jeho datového typu.
  * Každý výraz zanechá na zásobníku právě jednu hodnotu, včetně typu Unit.
  */
-static DataType literal(const AstNode* nodes)
+static DataType literal(const AstNode* literal_node)
 {
-	switch (nodes->data_type)
+	switch (literal_node->data_type)
 	{
 		case TYPE_INT:
-			emit("PUSHS int@%lld\n", nodes->int_val);
+			emit("PUSHS int@%lld\n", literal_node->int_val);
 			break;
         case TYPE_DOUBLE:
-			emit("PUSHS float@%a\n", nodes->double_val);
+			emit("PUSHS float@%a\n", literal_node->double_val);
 			break;
         case TYPE_STRING:
 			emit("PUSHS ");
-			emit_string(nodes->str_val);
+			emit_string(literal_node->str_val);
 			emit("\n");
 			break;
         case TYPE_BOOL:
-			emit("PUSHS bool@%s\n", nodes->int_val ? "true" : "false");
+			emit("PUSHS bool@%s\n", literal_node->int_val ? "true" : "false");
 			break;
         case TYPE_UNIT:
 			emit("PUSHS nil@nil\n");
@@ -193,7 +193,7 @@ static DataType literal(const AstNode* nodes)
 			break;
 	}
 
-	return nodes->data_type;
+	return literal_node->data_type;
 }
 
 /*
@@ -241,7 +241,7 @@ static void wrap_int(Generator* gen)
 	emit("LABEL $L%zu_done\nPUSHS LF@%%a\n", id);
 }
 
-static DataType expression(Generator* gen, const AstNode* nodes);
+static DataType expression(Generator* gen, const AstNode* expr_node);
 
 /*
  * Vyhodnotí stanovený počet argumentů vestavěné funkce v pořadí,
@@ -281,10 +281,10 @@ static void builtin_args(Generator* gen, const AstNode* args, size_t count, cons
  * Dočasné lokální proměnné se používají až po vyhodnocení argumentů,
  * aby vnořená volání funkcí nemohla přepsat hodnoty operandů.
  */
-static DataType builtin(Generator* gen, const AstNode* nodes)
+static DataType builtin(Generator* gen, const AstNode* call_node)
 {
-	const char* name = nodes->name;
-	const AstNode* args = nodes->arguments;
+	const char* name = call_node->name;
+	const AstNode* args = call_node->arguments;
 
 	if (!strcmp(name, "print") || !strcmp(name, "toStr"))
     {
@@ -420,16 +420,16 @@ static DataType builtin(Generator* gen, const AstNode* nodes)
  * Volaná funkce je odebírá v opačném pořadí do vlastního rámce
  * a na zásobník ukládá právě jednu návratovou hodnotu.
  */
-static DataType call(Generator* gen, const AstNode* nodes)
+static DataType call(Generator* gen, const AstNode* call_node)
 {
-	const AstNode* func = find_function(gen, nodes->name);
+	const AstNode* func = find_function(gen, call_node->name);
 
 	if (!func)
 	{
-		return builtin(gen, nodes);
+		return builtin(gen, call_node);
 	}
 
-	const AstNode* args = nodes->arguments;
+	const AstNode* args = call_node->arguments;
 	const AstNode* params = func->parameters;
 	while (args && params)
 	{
@@ -453,10 +453,10 @@ static DataType call(Generator* gen, const AstNode* nodes)
  * Následně vygeneruje instrukce odpovídající danému operátoru.
  * Celočíselné aritmetické výsledky normalizuje do rozsahu typu Int.
  */
-static DataType binary(Generator* gen, const AstNode* nodes)
+static DataType binary(Generator* gen, const AstNode* binary_node)
 {
-	DataType left_type = expression(gen, nodes->left);
-	DataType right_type = expression(gen, nodes->right);
+	DataType left_type = expression(gen, binary_node->left);
+	DataType right_type = expression(gen, binary_node->right);
 	DataType common = left_type;
 
 	if (left_type == TYPE_INT && right_type == TYPE_DOUBLE)
@@ -474,7 +474,7 @@ static DataType binary(Generator* gen, const AstNode* nodes)
 		fail("incompatible binary operands");
 	}
 
-	switch (nodes->op)
+	switch (binary_node->op)
 	{
 		case OP_ADD:
 			if (common == TYPE_STRING)
@@ -504,7 +504,7 @@ static DataType binary(Generator* gen, const AstNode* nodes)
 		case OP_LESSOREQUAL:
 		case OP_GREATEROREQUAL:
 			emit("POPS LF@%%b\nPOPS LF@%%a\nPUSHS LF@%%a\nPUSHS LF@%%b\n");
-			emit(nodes->op == OP_LESSOREQUAL ? "LTS\n" : "GTS\n");
+			emit(binary_node->op == OP_LESSOREQUAL ? "LTS\n" : "GTS\n");
 			emit("PUSHS LF@%%a\nPUSHS LF@%%b\nEQS\nORS\n");
 			return TYPE_BOOL;
 		default:
@@ -525,34 +525,34 @@ static DataType binary(Generator* gen, const AstNode* nodes)
  * výsledné hodnoty. U unárního operátoru negace provádí změnu
  * znaménka a u celočíselných hodnot normalizaci do rozsahu typu Int.
  */
-static DataType expression(Generator* gen, const AstNode* nodes)
+static DataType expression(Generator* gen, const AstNode* expr_node)
 {
-	if (!nodes)
+	if (!expr_node)
 	{
 		fail("missing expression");
 	}
 
-	switch (nodes->kind)
+	switch (expr_node->kind)
 	{
 		case AST_LIT:
-			return literal(nodes);
+			return literal(expr_node);
 		case AST_ID:
 		{
-			Local var = lookup(gen, nodes->name);
+			Local var = lookup(gen, expr_node->name);
 			emit("PUSHS LF@v%zu\n", var.id);
 			return var.type;
 		}
 		case AST_FUNC_CALL:
-			return call(gen, nodes);
+			return call(gen, expr_node);
 		case AST_BINARY_OP:
-			return binary(gen, nodes);
+			return binary(gen, expr_node);
 		case AST_UNARY_OP:
-			if (nodes->op != OP_NEG)
+			if (expr_node->op != OP_NEG)
 			{
 				fail("unsupported unary operator");
 			}
 
-			DataType type = expression(gen, nodes->left);
+			DataType type = expression(gen, expr_node->left);
 			if (type == TYPE_INT)
 			{
 				emit("PUSHS int@-1\nMULS\n");
@@ -581,21 +581,21 @@ static DataType expression(Generator* gen, const AstNode* nodes)
  * pořadí, v jakém jsou uzly procházeny do hloubky při generování kódu.
  * Tím zabraňuje opakovanému provádění instrukce DEFVAR uvnitř cyklů.
  */
-static void declare_locals(const AstNode* nodes, size_t* id)
+static void declare_locals(const AstNode* stmt_node, size_t* id)
 {
-	for (; nodes; nodes = nodes->next)
+	for (; stmt_node; stmt_node = stmt_node->next)
 	{
-		if (nodes->kind == AST_VAR_DEF)
+		if (stmt_node->kind == AST_VAR_DEF)
 		{
 			emit("DEFVAR LF@v%zu\n", (*id)++);
 		}
-		else if (nodes->kind == AST_IF || nodes->kind == AST_WHILE)
+		else if (stmt_node->kind == AST_IF || stmt_node->kind == AST_WHILE)
 		{
-			declare_locals(nodes->body, id);
+			declare_locals(stmt_node->body, id);
 
-			if (nodes->kind == AST_IF)
+			if (stmt_node->kind == AST_IF)
 			{
-				declare_locals(nodes->else_body, id);
+				declare_locals(stmt_node->else_body, id);
 			}
 		}
 	}
@@ -623,22 +623,22 @@ static void finish_return(Generator* gen, DataType actual)
 	emit("JUMP $ret_%s\n", gen->function->name);
 }
 
-static void block(Generator* gen, const AstNode* nodes, bool function_body);
+static void block(Generator* gen, const AstNode* stmt_node, bool function_body);
 
 /*
  * Generuje kód jednotlivých příkazů podle druhu uzlu AST.
  * Pouze poslední výraz těla funkce tvoří implicitní návratovou
  * hodnotu. Výsledky výrazů ve vnořených blocích jsou zahozeny.
  */
-static void statement(Generator* gen, const AstNode* nodes, bool last)
+static void statement(Generator* gen, const AstNode* stmt_node, bool last)
 {
-	switch (nodes->kind)
+	switch (stmt_node->kind)
 	{
 		case AST_VAR_DEF:
 		{
 			size_t id = gen->next_var++;
-			DataType actual = expression(gen, nodes->value);
-			DataType t = nodes->data_type == TYPE_NONE ? actual : nodes->data_type;
+			DataType actual = expression(gen, stmt_node->value);
+			DataType t = stmt_node->data_type == TYPE_NONE ? actual : stmt_node->data_type;
 			convert(actual, t);
 			emit("POPS LF@v%zu\n", id);
 
@@ -646,13 +646,13 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 			 * Vazba proměnné vzniká až po vyhodnocení inicializačního
 			 * výrazu, aby bylo správně zajištěno zastínění proměnných.
 			 */
-			bind(gen, nodes->name, id, t);
+			bind(gen, stmt_node->name, id, t);
 			break;
 		}
 		case AST_ASSIGN:
 		{
-			Local var = lookup(gen, nodes->name);
-			convert(expression(gen, nodes->value), var.type);
+			Local var = lookup(gen, stmt_node->name);
+			convert(expression(gen, stmt_node->value), var.type);
 			emit("POPS LF@v%zu\n", var.id);
 			break;
 		}
@@ -660,15 +660,15 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 		{
 			size_t id = label(gen);
 
-            if (expression(gen, nodes->condition) != TYPE_BOOL)
+            if (expression(gen, stmt_node->condition) != TYPE_BOOL)
 			{
 				fail("non-boolean if condition");
 			}
 
 			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_else\n", id);
-			block(gen, nodes->body, false);
+			block(gen, stmt_node->body, false);
 			emit("JUMP $L%zu_end\nLABEL $L%zu_else\n", id, id);
-			block(gen, nodes->else_body, false);
+			block(gen, stmt_node->else_body, false);
 			emit("LABEL $L%zu_end\n", id);
 			break;
 		}
@@ -677,20 +677,20 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 			size_t id = label(gen);
 			emit("LABEL $L%zu_loop\n", id);
 
-			if (expression(gen, nodes->condition) != TYPE_BOOL)
+			if (expression(gen, stmt_node->condition) != TYPE_BOOL)
 			{
 				fail("non-Boolean while condition");
 			}
 
 			emit("PUSHS bool@false\nJUMPIFEQS $L%zu_end\n", id);
-			block(gen, nodes->body, false);
+			block(gen, stmt_node->body, false);
 			emit("JUMP $L%zu_loop\nLABEL $L%zu_end\n", id, id);
 			break;
 		}
 		case AST_RETURN:
-			if (nodes->value)
+			if (stmt_node->value)
 			{
-				finish_return(gen, expression(gen, nodes->value));
+				finish_return(gen, expression(gen, stmt_node->value));
 			}
 			else
 			{
@@ -704,7 +704,7 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
 		case AST_LIT:
 		case AST_ID:
 		{
-			DataType type = expression(gen, nodes);
+			DataType type = expression(gen, stmt_node);
 			if (last)
 			{
 				finish_return(gen, type);
@@ -736,13 +736,13 @@ static void statement(Generator* gen, const AstNode* nodes, bool last)
  * platnosti. Po opuštění bloku obnoví původní počet vazeb, čímž
  * odstraní vazby lokálních proměnných deklarovaných uvnitř bloku.
  */
-static void block(Generator* gen, const AstNode* nodes, bool function_body)
+static void block(Generator* gen, const AstNode* stmt_node, bool function_body)
 {
 	size_t saved = gen->count;
 
-	for (; nodes; nodes = nodes->next)
+	for (; stmt_node; stmt_node = stmt_node->next)
 	{
-		statement(gen, nodes, function_body && !nodes->next);
+		statement(gen, stmt_node, function_body && !stmt_node->next);
 	}
 
 	gen->count = saved;

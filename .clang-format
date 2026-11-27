@@ -8,7 +8,7 @@ AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
 AllowShortLoopsOnASingleLine: false
 
-ColumnLimit: 100
+ColumnLimit: 150
 MaxEmptyLinesToKeep: 1
 
 IncludeBlocks: Regroup
